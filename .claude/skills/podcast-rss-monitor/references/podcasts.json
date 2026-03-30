@@ -3,8 +3,8 @@
     "source": "xyzrank.com",
     "fetch_time": "2026-03-31",
     "total_count": 1000,
-    "rss_count": 872,
-    "xiaoyuzhou_count": 128
+    "rss_count": 862,
+    "xiaoyuzhou_count": 138
   },
   "podcasts": [
     {
@@ -2992,8 +2992,8 @@
       "name": "晚风说",
       "author": "Ninde_yala",
       "episode_count": 2,
-      "link_type": "rss",
-      "url": "https://feeds.fireside.fm/cosmosrepair/rss",
+      "link_type": "xiaoyuzhou",
+      "url": "https://www.xiaoyuzhoufm.com/podcast/5e280faf418a84a0461fbd31",
       "description": "",
       "category": "休闲"
     },
@@ -4742,8 +4742,8 @@
       "name": "酸菜馆播客",
       "author": "王掌柜, 飞驰吧叮叮",
       "episode_count": 71,
-      "link_type": "rss",
-      "url": "https://wzzgg.com/feed/wasai",
+      "link_type": "xiaoyuzhou",
+      "url": "https://www.xiaoyuzhoufm.com/podcast/5e2aadff418a84a046540ad9",
       "description": "",
       "category": "幽默对谈"
     },
@@ -4752,8 +4752,8 @@
       "name": "理财小客栈",
       "author": "小罗买股票, 叫我诗诗",
       "episode_count": 84,
-      "link_type": "rss",
-      "url": "https://feed.xyzfm.space/brfrfq4hw4g7",
+      "link_type": "xiaoyuzhou",
+      "url": "https://www.xiaoyuzhoufm.com/podcast/63d47b2cf52bf16da914deaf",
       "description": "",
       "category": "商务"
     },
@@ -5762,8 +5762,8 @@
       "name": "Anyway.FM 设计杂谈",
       "author": "JJYing, LeonGao",
       "episode_count": 194,
-      "link_type": "rss",
-      "url": "https://Anyway.FM/rss.xml",
+      "link_type": "xiaoyuzhou",
+      "url": "https://www.xiaoyuzhoufm.com/podcast/5e280faf418a84a0461fba0e",
       "description": "",
       "category": "设计"
     },
@@ -6072,8 +6072,8 @@
       "name": "路书",
       "author": "AlecPenn",
       "episode_count": 170,
-      "link_type": "rss",
-      "url": "https://feeds.fireside.fm/lushu/rss",
+      "link_type": "xiaoyuzhou",
+      "url": "https://www.xiaoyuzhoufm.com/podcast/5e3d21eb418a84a04619b793",
       "description": "",
       "category": "视觉艺术"
     },
@@ -6992,8 +6992,8 @@
       "name": "Common FM",
       "author": "中国的jiancui, Common FM",
       "episode_count": 177,
-      "link_type": "rss",
-      "url": "https://feed.xyzfm.space/8mtvffcmk6f9",
+      "link_type": "xiaoyuzhou",
+      "url": "https://www.xiaoyuzhoufm.com/podcast/5e284e0e418a84a046269b28",
       "description": "",
       "category": "音乐"
     },
@@ -7172,8 +7172,8 @@
       "name": "普通读者",
       "author": "JacinttaH, 堂本栞, 徐慢懒",
       "episode_count": 24,
-      "link_type": "rss",
-      "url": "https://anchor.fmt2obv5qn4kg",
+      "link_type": "xiaoyuzhou",
+      "url": "https://www.xiaoyuzhoufm.com/podcast/5f8a3a9783c34e85ddec0dfb",
       "description": "",
       "category": "图书"
     },
@@ -7502,8 +7502,8 @@
       "name": "Pfizer Express",
       "author": "声动活泼的声小音, cacoschphou",
       "episode_count": 26,
-      "link_type": "rss",
-      "url": "https://feeds.fireside.fm/pfizer-express/rss",
+      "link_type": "xiaoyuzhou",
+      "url": "https://www.xiaoyuzhoufm.com/podcast/603cbaa16b563374a9e3565b",
       "description": "",
       "category": "医学"
     },
@@ -7852,8 +7852,8 @@
       "name": "乘风破浪",
       "author": "郑立涛, 鹿妙妙",
       "episode_count": 25,
-      "link_type": "rss",
-      "url": "https://www.ximalaya.com/album/41654612.xml",
+      "link_type": "xiaoyuzhou",
+      "url": "https://www.xiaoyuzhoufm.com/podcast/65350c9abfd0868f2b75e6ea",
       "description": "",
       "category": "个人日记"
     },
@@ -8532,8 +8532,8 @@
       "name": "环形散步",
       "author": "冻豆豆, 海带丝",
       "episode_count": 20,
-      "link_type": "rss",
-      "url": "https://circularstroll.typlog.io/feed/audio.xml",
+      "link_type": "xiaoyuzhou",
+      "url": "https://www.xiaoyuzhoufm.com/podcast/60792ba701eac5c70c8c9b40",
       "description": "",
       "category": "设计"
     },
