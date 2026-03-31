@@ -95,6 +95,12 @@ def load_ai_summaries(summaries_path):
             return json.load(f)
     return {}
 
+def clean_episode_url(url):
+    """清理单集链接：去除 ?utm_source=rss 后缀"""
+    if url and '?utm_source=' in url:
+        return url.split('?utm_source=')[0]
+    return url or ''
+
 def generate_report(json_path, output_path=None, summaries_path=None):
     """生成 Markdown 报告
 
@@ -135,7 +141,6 @@ def generate_report(json_path, output_path=None, summaries_path=None):
         url = update.get('episode_url', '')
         pub_date = update.get('pub_date', '未知')
         shownotes = update.get('shownotes', '')
-        source = update.get('source', 'RSS')
 
         # 过滤广告
         filtered = filter_ads(shownotes, ad_keywords)
@@ -145,15 +150,16 @@ def generate_report(json_path, output_path=None, summaries_path=None):
         if not summary:
             summary = generate_summary(filtered)
 
+        # 清理单集链接
+        display_url = clean_episode_url(url)
+
         lines.append(f'## {i}. {podcast_name} (排名 {rank})')
         lines.append('')
         lines.append(f'**单集**: {title}')
         lines.append('')
-        lines.append(f'**链接**: {url}')
+        lines.append(f'**链接**: {display_url}')
         lines.append('')
         lines.append(f'**发布时间**: {pub_date}')
-        lines.append('')
-        lines.append(f'**来源**: {source}')
         lines.append('')
         lines.append(f'**摘要**: {summary}')
         lines.append('')

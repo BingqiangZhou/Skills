@@ -1,3 +1,4 @@
 
 podcast-workspace/
 .vscode/
+__pycache__/

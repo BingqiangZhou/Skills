@@ -39,9 +39,10 @@ project_root/
 └── .claude/skills/podcast-rss-monitor/
     ├── SKILL.md                  # This file
     ├── scripts/
-    │   ├── check_updates.py      # Main update checker
-    │   ├── generate_report.py    # Report generator
-    │   └── convert_to_json.py    # MD-to-JSON converter (one-time)
+    │   ├── check_updates.py           # Main update checker
+    │   ├── resolve_xiaoyuzhou_urls.py  # Resolve non-XYZ URLs to XYZ episode links
+    │   ├── generate_report.py         # Report generator
+    │   └── convert_to_json.py         # MD-to-JSON converter (one-time)
     └── references/
         ├── podcasts.json         # 1000 podcast source data
         ├── podcast_rss_list.md   # Raw markdown list
@@ -94,8 +95,7 @@ The script already filters ad content using `references/ad_keywords.txt`. No man
       "episode_title": "单集标题",
       "episode_url": "https://...",
       "pub_date": "2026-03-26 10:00",
-      "shownotes": "已过滤广告的 shownotes...",
-      "source": "RSS"
+      "shownotes": "已过滤广告的 shownotes..."
     }
   ]
 }
@@ -104,6 +104,27 @@ The script already filters ad content using `references/ad_keywords.txt`. No man
 **Result handling**:
 - If `update_count` is 0, inform the user and stop — no digest needed.
 - If `error_count` > 50 (>5% of total), warn about network issues and suggest retrying.
+
+---
+
+### Step 1.5: Resolve Xiaoyuzhou Episode URLs
+
+Resolve non-Xiaoyuzhou episode URLs to Xiaoyuzhou episode-level links (`xiaoyuzhoufm.com/episode/{eid}`).
+
+```bash
+cd "{skill_directory}" && python scripts/resolve_xiaoyuzhou_urls.py \
+  --input "{project_root}/podcast-workspace/latest_updates.json"
+```
+
+This step:
+- Reads `latest_updates.json` from Step 1
+- For each non-Xiaoyuzhou episode URL, fetches the podcast's Xiaoyuzhou page
+- Matches episode titles to find the correct episode ID
+- Replaces URLs with `https://www.xiaoyuzhoufm.com/episode/{eid}`
+- Cleans `?utm_source=rss` suffixes from existing Xiaoyuzhou links
+- Overwrites `latest_updates.json` with resolved URLs
+
+**Note**: This step requires `xiaoyuzhou_url` field in `podcasts.json` for matching. Podcasts without this field will keep their original URLs.
 
 ---
 
@@ -223,6 +244,12 @@ Main Agent
           |- HTTP cache (ETag/If-Modified-Since) for incremental updates
           |- Error statistics with classification
           |- Output: podcast-workspace/latest_updates.json
+  |
+  Step 1.5: python resolve_xiaoyuzhou_urls.py
+          |- Resolves non-XYZ URLs to XYZ episode links
+          |- Title matching (exact → substring)
+          |- Cleans utm_source suffixes
+          |- Updates: podcast-workspace/latest_updates.json (in-place)
   |
   Step 2: Prepare batches -> N parallel sub-agents (max 4 concurrent)
           |- Each sub-agent reads podcast-workspace/podcast_batch_N.json
