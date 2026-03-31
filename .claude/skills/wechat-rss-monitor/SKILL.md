@@ -20,7 +20,7 @@ description: |
 
 # WeChat RSS Monitor Skill
 
-Monitor ~300 WeChat Official Account RSS feeds via Wechat2RSS
+Monitor ~395 WeChat Official Account RSS feeds via Wechat2RSS
 (https://wechat2rss.xlab.app/list/all) and generate AI-summarized daily
 digest reports. Feeds are organized into 4 categories: Security (安全),
 Development (开发), Other (其他), and User Submitted (用户提交).
@@ -36,7 +36,7 @@ Development (开发), Other (其他), and User Submitted (用户提交).
     fetch_articles.py       # Enrich articles with full content from URLs
     generate_report.py      # Generate Markdown digest report
   references/
-    feeds.json              # Cached feed list (~300 feeds, refreshed weekly)
+    feeds.json              # Cached feed list (~395 feeds, refreshed weekly)
 
 {project_root}/
   wechat-workspace/         # Runtime intermediate files
@@ -80,14 +80,14 @@ Options:
 
 ```bash
 cd "{skill_directory}" && python scripts/check_updates.py \
-  --hours 24 --workers 20 \
+  --hours 24 --workers 10 \
   --output "{project_root}/wechat-workspace/latest_updates.json" \
   --cache "{project_root}/wechat-workspace/.http_cache.json"
 ```
 
 Options:
 - `--hours N` — time window in hours (default: 24)
-- `--workers N` — concurrent workers (default: 20, all hit same domain)
+- `--workers N` — concurrent workers (default: 10, all hit same domain)
 - `--category NAME` — filter by category (安全/开发/其他/用户提交)
 - `--count N` — limit number of feeds to check (0 = all)
 
@@ -101,10 +101,7 @@ this is already sufficient for AI summarization.
 
 ### Step 2.5 (Optional): Enrich articles with full content
 
-If the RSS `content:encoded` is insufficient (short or missing), run
-`fetch_articles.py` to attempt fetching the full article directly from
-the mp.weixin.qq.com URL. Note: WeChat has anti-scraping measures so
-this may not always succeed.
+Rarely needed — the RSS `content:encoded` from wechat2rss is usually comprehensive. Only run if many articles have `full_text` under 200 characters. Attempts to fetch from mp.weixin.qq.com often fail due to anti-scraping measures.
 
 ```bash
 cd "{skill_directory}" && python scripts/fetch_articles.py \
@@ -147,6 +144,7 @@ with this exact structure:
 {
   "summaries": [
     {
+      "article_url": "the article_url from the input",
       "account_name": "...",
       "article_title": "...",
       "ai_summary": "one-sentence Chinese summary"
@@ -180,15 +178,16 @@ The `{timestamp}` should be in `YYYY-MM-DD_HH-MM` format based on current time.
 ## Performance Notes
 
 - Feed list fetch: ~1s (weekly cached)
-- Full RSS scan (300 feeds, no cache): ~60s with 20 workers
-- Subsequent scans (ETag cached): ~20s
+- Full RSS scan (395 feeds, 10 workers): ~60-90s
+- Subsequent scans (ETag cached): ~15-20s
 - AI summarization (4 sub-agents): ~60s
 - Total end-to-end: ~2-3 minutes
 
 ## Completion
 
 After generating the report, inform the user:
-- How many articles were found
-- Which categories had updates
+- How many articles were found (and how many were skipped as trivial)
+- Which categories had updates (with counts)
 - The path to the generated report file
+- A brief highlight: mention the 2-3 most interesting/important articles by title
 - Suggest they can use `--category` to filter by specific category next time

@@ -15,6 +15,7 @@ import random
 import re
 import ssl
 import sys
+import threading
 import time
 import urllib.error as urllib_error
 import urllib.request as urllib_request
@@ -30,23 +31,60 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 class _HTMLStripper(HTMLParser):
-    """Strip HTML tags and decode entities to plain text."""
+    """HTML to plain text parser with block tag awareness and entity handling."""
+
+    BLOCK_TAGS = frozenset({'p', 'div', 'br', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                            'blockquote', 'tr', 'ul', 'ol', 'table', 'hr', 'section', 'article'})
+    SKIP_TAGS = frozenset({'style', 'script'})
 
     def __init__(self):
         super().__init__()
         self._pieces = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIP_TAGS:
+            self._skip_depth += 1
+        elif tag in self.BLOCK_TAGS and self._pieces and self._pieces[-1] != '\n':
+            self._pieces.append('\n')
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIP_TAGS:
+            self._skip_depth = max(0, self._skip_depth - 1)
+        elif tag in self.BLOCK_TAGS:
+            self._pieces.append('\n')
 
     def handle_data(self, data):
-        self._pieces.append(data)
+        if self._skip_depth == 0:
+            self._pieces.append(data)
 
     def handle_entityref(self, name):
-        self._pieces.append(f"&{name};")
+        """Handle named entities like &amp; &nbsp;"""
+        if self._skip_depth > 0:
+            return
+        entities = {'amp': '&', 'lt': '<', 'gt': '>', 'nbsp': '', 'quot': '"',
+                     'apos': "'", 'mdash': '—', 'ndash': '–', 'bull': '•'}
+        self._pieces.append(entities.get(name, f'&{name};'))
 
     def handle_charref(self, name):
-        self._pieces.append(f"&#{name};")
+        """Handle numeric entities like &#39; &#x27;"""
+        if self._skip_depth > 0:
+            return
+        try:
+            if name.startswith('x') or name.startswith('X'):
+                char = chr(int(name[1:], 16))
+            else:
+                char = chr(int(name))
+            self._pieces.append(char)
+        except (ValueError, OverflowError):
+            self._pieces.append(f'&#{name};')
 
     def get_text(self):
-        return "".join(self._pieces)
+        text = ''.join(self._pieces)
+        text = text.replace('\xa0', ' ')  # non-breaking space -> regular space
+        text = re.sub(r'[ \t]+', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
 
 
 def strip_html(html_text):
@@ -55,10 +93,7 @@ def strip_html(html_text):
         return ""
     stripper = _HTMLStripper()
     stripper.feed(html_text)
-    text = stripper.get_text()
-    # Collapse whitespace
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    return stripper.get_text()
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +215,23 @@ def fetch_url(url, cache=None, timeout=30):
             return None, -1, {}
 
 
+def fetch_url_with_retry(url, cache=None, timeout=30, max_retries=2):
+    """Fetch a URL with retry on network errors and exponential backoff.
+
+    Returns the same tuple as fetch_url: (body, status, cache_entry).
+    Retries up to max_retries times when status is -1 (network error).
+    """
+    for attempt in range(max_retries + 1):
+        body, status, new_cache = fetch_url(url, cache=cache, timeout=timeout)
+        if body is not None or status == 304:
+            return body, status, new_cache
+        # Network error — retry with backoff
+        if attempt < max_retries:
+            delay = (attempt + 1) * 2 + random.uniform(0, 1)
+            time.sleep(delay)
+    return None, -1, {}
+
+
 # ---------------------------------------------------------------------------
 # RSS parsing
 # ---------------------------------------------------------------------------
@@ -266,7 +318,7 @@ def check_feed(feed, cutoff_time, cache):
     if not feed.get("active", True):
         return feed, [], None, {}
 
-    body, status, new_cache = fetch_url(url, cache=cache)
+    body, status, new_cache = fetch_url_with_retry(url, cache=cache)
 
     if body is None:
         if status == 304:
@@ -301,15 +353,16 @@ def check_feed(feed, cutoff_time, cache):
     return feed, articles, None, new_cache
 
 
-def process_feed_batch(batch, cutoff_time, cache):
-    """Process a batch of feeds serially with rate limiting."""
-    results = []
-    for feed in batch:
-        feed_info, articles, error, new_cache = check_feed(feed, cutoff_time, cache)
-        results.append((feed_info, articles, error, new_cache))
-        # Rate limit: 0.3-0.5s between requests to the same domain
+def process_feed_with_semaphore(feed, cutoff_time, cache, semaphore):
+    """Process a single feed with global concurrency limiting via semaphore."""
+    if not feed.get("active", True):
+        return feed, [], None, {}
+
+    with semaphore:
+        # Global rate limit: small random delay to avoid bursts
         time.sleep(random.uniform(0.3, 0.5))
-    return results
+        feed_info, articles, error, new_cache = check_feed(feed, cutoff_time, cache)
+    return feed_info, articles, error, new_cache
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +397,7 @@ def main():
     parser.add_argument("--output", required=True, help="Output JSON file path")
     parser.add_argument("--cache", default=None, help="HTTP cache file path")
     parser.add_argument("--hours", type=int, default=24, help="Time window in hours (default: 24)")
-    parser.add_argument("--workers", type=int, default=20, help="Number of concurrent workers (default: 20)")
+    parser.add_argument("--workers", type=int, default=10, help="Number of concurrent workers (default: 10)")
     parser.add_argument("--category", default=None, help="Filter by category name")
     parser.add_argument("--count", type=int, default=0, help="Max feeds to check (0 = all)")
     args = parser.parse_args()
@@ -388,28 +441,26 @@ def main():
     # Load HTTP cache
     cache = load_cache(cache_path)
 
-    # Split feeds into worker batches
+    # Global semaphore limits concurrent HTTP connections to the same domain
     num_workers = min(args.workers, len(feeds))
-    batches = []
-    for i in range(num_workers):
-        batch = [feeds[j] for j in range(i, len(feeds), num_workers)]
-        if batch:
-            batches.append(batch)
+    semaphore = threading.Semaphore(value=num_workers)
 
-    # Process batches concurrently
+    # Process feeds concurrently with global rate limiting
     all_results = []
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = []
-        for batch in batches:
-            future = executor.submit(process_feed_batch, batch, cutoff_time, cache)
+        for feed in feeds:
+            future = executor.submit(
+                process_feed_with_semaphore, feed, cutoff_time, cache, semaphore
+            )
             futures.append(future)
 
         for future in as_completed(futures):
             try:
-                results = future.result()
-                all_results.extend(results)
+                result = future.result()
+                all_results.append(result)
             except Exception as e:
-                print(f"Batch error: {e}", file=sys.stderr)
+                print(f"Feed error: {e}", file=sys.stderr)
 
     # Aggregate results
     updates = []
@@ -445,6 +496,18 @@ def main():
                     **article,
                 })
 
+    # Deduplicate by article URL (same article may appear from different feed fetches)
+    seen_urls = set()
+    unique_updates = []
+    for update in updates:
+        url = update.get("article_url", "")
+        if url and url in seen_urls:
+            continue
+        if url:
+            seen_urls.add(url)
+        unique_updates.append(update)
+    updates = unique_updates
+
     # Sort updates by pub_date descending
     updates.sort(key=lambda x: x.get("pub_date", ""), reverse=True)
 
@@ -473,7 +536,11 @@ def main():
 
     # Print summary
     meta = output["metadata"]
+    total_before_dedup = sum(s["updates"] for s in category_stats.values())
+    dedup_count = total_before_dedup - meta["update_count"]
     print(f"\nResults: {meta['update_count']} new articles from {meta['checked_count']} feeds")
+    if dedup_count > 0:
+        print(f"Deduplicated: {dedup_count} duplicate articles removed")
     if meta["error_count"] > 0:
         print(f"Errors: {meta['error_count']} ({meta['error_details']})")
         error_rate = meta["error_count"] / max(meta["checked_count"], 1)

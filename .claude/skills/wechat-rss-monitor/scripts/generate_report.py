@@ -29,14 +29,15 @@ def load_json(path):
 def build_summary_map(summaries_data):
     """Build a lookup map from AI summaries data.
 
-    Key: (account_name, article_title), Value: summary text
+    Returns a dict keyed by article_url for fast lookup.
     """
     if not summaries_data or "summaries" not in summaries_data:
         return {}
     result = {}
     for item in summaries_data["summaries"]:
-        key = (item.get("account_name", ""), item.get("article_title", ""))
-        result[key] = item.get("ai_summary", "")
+        url = item.get("article_url", "")
+        if url:
+            result[url] = item.get("ai_summary", "")
     return result
 
 
@@ -95,9 +96,8 @@ def generate_report(updates_data, summary_map):
             pub_date = update.get("pub_date", "")
             summary_text = update.get("summary_text", "")
 
-            # Look up AI summary
-            key = (account_name, article_title)
-            ai_summary = summary_map.get(key, "")
+            # Look up AI summary by URL (primary key)
+            ai_summary = summary_map.get(article_url, "")
 
             lines.append(f"### {article_index}. {account_name}")
             lines.append("")
