@@ -15,6 +15,7 @@ import ssl
 import time
 import random
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,54 +32,69 @@ def get_utc_now():
     """获取当前 UTC 时间"""
     return datetime.now(timezone.utc)
 
-def load_ad_keywords():
-    """加载广告关键词，返回 (high_confidence, low_confidence) 两个列表"""
-    high = []
-    low = []
-    current_level = 'high'  # 默认高置信度
-    ad_file = Path(__file__).parent.parent / 'references' / 'ad_keywords.txt'
-    if ad_file.exists():
-        with open(ad_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if line == '[high]':
-                    current_level = 'high'
-                elif line == '[low]':
-                    current_level = 'low'
-                else:
-                    (high if current_level == 'high' else low).append(line)
-    return high, low
+class _HTMLStripper(HTMLParser):
+    """HTML 转纯文本的解析器，基于标准库 html.parser"""
+    BLOCK_TAGS = frozenset({'p', 'div', 'br', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                            'blockquote', 'tr', 'ul', 'ol', 'table', 'hr', 'section', 'article'})
+    SKIP_TAGS = frozenset({'style', 'script'})
 
-def filter_ads(shownotes, ad_keywords):
-    """过滤广告段落
+    def __init__(self):
+        super().__init__()
+        self._pieces = []
+        self._skip_depth = 0
 
-    ad_keywords 可以是:
-    - tuple (high, low): 双层级过滤，高置信度直接过滤，低置信度仅在短段落(≤50字)时过滤
-    - list: 单层级过滤（向后兼容），所有关键词直接过滤
-    """
-    if not shownotes:
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIP_TAGS:
+            self._skip_depth += 1
+        elif tag in self.BLOCK_TAGS and self._pieces and self._pieces[-1] != '\n':
+            self._pieces.append('\n')
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIP_TAGS:
+            self._skip_depth = max(0, self._skip_depth - 1)
+        elif tag in self.BLOCK_TAGS:
+            self._pieces.append('\n')
+
+    def handle_data(self, data):
+        if self._skip_depth == 0:
+            self._pieces.append(data)
+
+    def handle_entityref(self, name):
+        """处理命名实体如 &amp; &nbsp;"""
+        if self._skip_depth > 0:
+            return
+        entities = {'amp': '&', 'lt': '<', 'gt': '>', 'nbsp': '', 'quot': '"',
+                     'apos': "'", 'mdash': '—', 'ndash': '–', 'bull': '•'}
+        self._pieces.append(entities.get(name, f'&{name};'))
+
+    def handle_charref(self, name):
+        """处理数字实体如 &#39; &#x27;"""
+        if self._skip_depth > 0:
+            return
+        try:
+            if name.startswith('x') or name.startswith('X'):
+                char = chr(int(name[1:], 16))
+            else:
+                char = chr(int(name))
+            self._pieces.append(char)
+        except (ValueError, OverflowError):
+            self._pieces.append(f'&#{name};')
+
+    def get_text(self):
+        text = ''.join(self._pieces)
+        text = text.replace('\xa0', ' ')  # non-breaking space -> regular space
+        text = re.sub(r'[ \t]+', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
+
+
+def strip_html(text):
+    """将 HTML 内容转换为纯文本"""
+    if not text:
         return ''
-    if isinstance(ad_keywords, tuple):
-        high_keywords, low_keywords = ad_keywords
-    else:
-        high_keywords, low_keywords = ad_keywords, []
-
-    paragraphs = re.split(r'\n\n+|\n', shownotes)
-    filtered = []
-    for p in paragraphs:
-        p = p.strip()
-        if not p:
-            continue
-        # 高置信度关键词：直接过滤
-        if any(kw in p for kw in high_keywords):
-            continue
-        # 低置信度关键词：仅在短段落时过滤
-        if len(p) <= 50 and any(kw in p for kw in low_keywords):
-            continue
-        filtered.append(p)
-    return '\n'.join(filtered)
+    stripper = _HTMLStripper()
+    stripper.feed(text)
+    return stripper.get_text()
 
 def parse_rss_date(date_str):
     """解析 RSS 日期格式"""
@@ -204,7 +220,7 @@ def parse_iso8601_date(date_str):
     except (ValueError, AttributeError):
         return None
 
-def check_rss_update(podcast, cutoff_time, ad_keywords, cache=None):
+def check_rss_update(podcast, cutoff_time, cache=None):
     """检查 RSS 类型播客的更新"""
     updates = []
     error_info = None
@@ -250,16 +266,15 @@ def check_rss_update(podcast, cutoff_time, ad_keywords, cache=None):
 
             pub_date = parse_rss_date(pub_date_str)
             if pub_date and pub_date > cutoff_time:
-                # 过滤广告
-                filtered = filter_ads(description, ad_keywords)
+                # 转为纯文本
+                plain = strip_html(description)
                 updates.append({
                     'podcast_name': podcast['name'],
                     'rank': podcast.get('rank', 0),
                     'episode_title': title,
                     'episode_url': link,
                     'pub_date': pub_date.strftime('%Y-%m-%d %H:%M'),
-                    'shownotes': filtered[:2000] if len(filtered) > 2000 else filtered,
-                    'source': 'RSS'
+                    'shownotes': plain[:2000] if len(plain) > 2000 else plain,
                 })
 
     except urllib.error.HTTPError as e:
@@ -273,7 +288,7 @@ def check_rss_update(podcast, cutoff_time, ad_keywords, cache=None):
 
     return updates, error_info, new_cache_entry
 
-def _check_xiaoyuzhou_fallback(podcast, content, ad_keywords):
+def _check_xiaoyuzhou_fallback(podcast, content):
     """旧版正则解析：当 __NEXT_DATA__ 不可用时作为后备"""
     updates = []
     episode_pattern = r'-\s*!\[Image[^\]]*\]\([^)]+\)\s*\n+([^\n]+)\s*\n+(.*?)(?=-\s*!\[Image|$)'
@@ -297,20 +312,19 @@ def _check_xiaoyuzhou_fallback(podcast, content, ad_keywords):
             except ValueError:
                 pass
 
-        filtered = filter_ads(desc, ad_keywords)
+        plain = strip_html(desc)
         updates.append({
             'podcast_name': podcast['name'],
             'rank': podcast.get('rank', 0),
             'episode_title': title,
             'episode_url': episode_url,
             'pub_date': pub_date.strftime('%Y-%m-%d %H:%M') if pub_date else '未知（小宇宙最新一集）',
-            'shownotes': filtered[:2000] if len(filtered) > 2000 else filtered,
-            'source': '小宇宙'
+            'shownotes': plain[:2000] if len(plain) > 2000 else plain,
         })
 
     return updates
 
-def check_xiaoyuzhou_update(podcast, cutoff_time, ad_keywords, cache=None):
+def check_xiaoyuzhou_update(podcast, cutoff_time, cache=None):
     """检查小宇宙类型播客的更新（通过 __NEXT_DATA__ JSON 解析，支持缓存）"""
     updates = []
     error_info = None
@@ -354,7 +368,7 @@ def check_xiaoyuzhou_update(podcast, cutoff_time, ad_keywords, cache=None):
                 if pub_date and pub_date <= cutoff_time:
                     continue
 
-                # 用 description 作为 shownotes
+                # 用 description 作为 shownotes，转为纯文本
                 description = ep.get('description', '') or ''
 
                 # 构建单集链接
@@ -363,19 +377,18 @@ def check_xiaoyuzhou_update(podcast, cutoff_time, ad_keywords, cache=None):
                 else:
                     episode_url = url
 
-                filtered = filter_ads(description, ad_keywords)
+                plain = strip_html(description)
                 updates.append({
                     'podcast_name': podcast['name'],
                     'rank': podcast.get('rank', 0),
                     'episode_title': title,
                     'episode_url': episode_url,
                     'pub_date': pub_date.strftime('%Y-%m-%d %H:%M') if pub_date else '未知（小宇宙）',
-                    'shownotes': filtered[:2000] if len(filtered) > 2000 else filtered,
-                    'source': '小宇宙'
+                    'shownotes': plain[:2000] if len(plain) > 2000 else plain,
                 })
         else:
             # 后备：旧版正则解析
-            updates = _check_xiaoyuzhou_fallback(podcast, content, ad_keywords)
+            updates = _check_xiaoyuzhou_fallback(podcast, content)
 
     except urllib.error.HTTPError as e:
         error_info = f"HTTP {e.code}"
@@ -435,10 +448,9 @@ def main():
     # 计算截止时间
     cutoff_time = get_utc_now() - timedelta(hours=args.hours)
 
-    # 加载缓存和广告关键词
+    # 加载缓存
     cache_path = Path(args.cache) if args.cache else Path.cwd() / 'podcast-workspace' / '.http_cache.json'
     cache = load_cache(cache_path)
-    ad_keywords = load_ad_keywords()  # returns (high, low) tuple
 
     print(f"检查 {len(podcasts)} 个播客的更新（时间范围: {args.hours}小时）...", file=sys.stderr)
     if cache:
@@ -453,9 +465,9 @@ def main():
 
     def process_podcast(podcast):
         if podcast.get('link_type') == 'rss':
-            return check_rss_update(podcast, cutoff_time, ad_keywords, cache)
+            return check_rss_update(podcast, cutoff_time, cache)
         elif podcast.get('link_type') == 'xiaoyuzhou':
-            return check_xiaoyuzhou_update(podcast, cutoff_time, ad_keywords, cache)
+            return check_xiaoyuzhou_update(podcast, cutoff_time, cache)
         return [], None, None
 
     def process_domain_group(podcast_group):

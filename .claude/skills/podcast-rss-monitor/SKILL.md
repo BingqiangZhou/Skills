@@ -35,18 +35,16 @@ project_root/
 │   ├── podcast_batch_N.json      # Batch input for sub-agents
 │   ├── ai_summaries_batch_N.json # Sub-agent output per batch
 │   └── ai_summaries.json         # Merged AI summaries
+├── podcast_rss_list.md           # Raw podcast list (source reference)
 │
 └── .claude/skills/podcast-rss-monitor/
     ├── SKILL.md                  # This file
     ├── scripts/
     │   ├── check_updates.py           # Main update checker
     │   ├── resolve_xiaoyuzhou_urls.py  # Resolve non-XYZ URLs to XYZ episode links
-    │   ├── generate_report.py         # Report generator
-    │   └── convert_to_json.py         # MD-to-JSON converter (one-time)
+    │   └── generate_report.py         # Report generator
     └── references/
-        ├── podcasts.json         # 1000 podcast source data
-        ├── podcast_rss_list.md   # Raw markdown list
-        └── ad_keywords.txt       # Ad filtering keywords
+        └── podcasts.json         # 1000 podcast source data
 ```
 
 All intermediate files go into `{project_root}/podcast-workspace/`. This keeps the skill directory clean and separates temporary data from the skill definition.
@@ -74,7 +72,7 @@ If `python` is not found, try `python3` or `uv run python`.
 - `--output`: Where to save results
 - `--cache`: ETag cache file path
 
-The script already filters ad content using `references/ad_keywords.txt`. No manual ad filtering needed.
+The script converts HTML shownotes to plain text. Ad filtering is handled by sub-agents in Step 2.
 
 **Output** (JSON):
 ```json
@@ -95,7 +93,7 @@ The script already filters ad content using `references/ad_keywords.txt`. No man
       "episode_title": "单集标题",
       "episode_url": "https://...",
       "pub_date": "2026-03-26 10:00",
-      "shownotes": "已过滤广告的 shownotes..."
+      "shownotes": "纯文本 shownotes..."
     }
   ]
 }
@@ -185,6 +183,7 @@ Requirements:
 2. 30-50 Chinese characters
 3. Capture the main topic and key points
 4. Use natural Chinese expression
+5. Filter out ad/promotional content when summarizing — ignore sponsor mentions, discount codes, QR code prompts, "follow our WeChat" type calls-to-action, and other commercial interruptions. Focus only on the substantive episode content.
 ```
 
 **Key**: Each sub-agent writes to its OWN batch file (`ai_summaries_batch_{N}.json`), not a shared file. This prevents race conditions.
@@ -240,7 +239,7 @@ Main Agent
   Step 1: python check_updates.py
           |- Concurrent workers (30)
           |- Checks all 1000 podcasts
-          |- Built-in ad filtering (dual-tier: high/low confidence)
+          |- HTML-to-plaintext conversion for shownotes
           |- HTTP cache (ETag/If-Modified-Since) for incremental updates
           |- Error statistics with classification
           |- Output: podcast-workspace/latest_updates.json

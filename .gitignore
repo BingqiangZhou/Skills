@@ -2,3 +2,7 @@
 podcast-workspace/
 .vscode/
 __pycache__/
+
+# podcast-digests: only keep the latest file tracked
+podcast-digests/*
+!podcast-digests/2026-03-31_14-00.md
