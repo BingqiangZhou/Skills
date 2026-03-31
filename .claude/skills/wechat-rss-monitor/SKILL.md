@@ -151,15 +151,20 @@ with this exact structure:
     }
   ]
 }
+
+CRITICAL - Encoding rules to avoid broken JSON:
+- MUST use Python json.dump() to write the JSON file, NOT bash heredoc/echo/cat
+- Do NOT use Chinese smart quotes (\u201c \u201d) in ai_summary text — use
+  straight quotes (") or avoid quotes altogether
+- Use ensure_ascii=False and encoding="utf-8" when writing
+- Example: with open(path, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
 ```
 
-3. After all sub-agents complete, merge all batch summary files into a
-   single `wechat-workspace/ai_summaries.json`:
-```json
-{
-  "summaries": [/* all entries from all batches */]
-}
-```
+3. After all sub-agents complete, manually merge the batch summary files
+   into a single `wechat-workspace/ai_summaries.json`:
+   - Read each `ai_summaries_batch_N.json` file
+   - Combine all `summaries` arrays into one list
+   - Write the merged result using Python json.dump() (same encoding rules)
 
 If sub-agents are not available (e.g., in Claude.ai), skip this step.
 The report generator will use the raw description text as fallback.
