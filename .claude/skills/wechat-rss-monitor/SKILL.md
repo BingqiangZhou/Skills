@@ -46,8 +46,8 @@ Development (开发), Other (其他), and User Submitted (用户提交).
     wechat_batch_N.json     # Batches for AI summarization
     ai_summaries_batch_N.json
     ai_summaries.json
-  wechat-digests/           # Final output reports
-    YYYY-MM-DD_HH-MM.md
+  daily-digests/YYYY-MM-DD/ # Unified output directory
+    wechat_HH-MM.md
 ```
 
 ## Execution Steps
@@ -60,7 +60,7 @@ with the project root (`E:/Projects/AI/OpenClaw_Skills`).
 
 ```bash
 mkdir -p "{project_root}/wechat-workspace"
-mkdir -p "{project_root}/wechat-digests"
+mkdir -p "{project_root}/daily-digests/$(date +%Y-%m-%d)"
 ```
 
 ### Step 1: Fetch/update the feed list
@@ -175,10 +175,10 @@ The report generator will use the raw description text as fallback.
 cd "{skill_directory}" && python scripts/generate_report.py \
   -i "{project_root}/wechat-workspace/latest_updates.json" \
   -s "{project_root}/wechat-workspace/ai_summaries.json" \
-  -o "{project_root}/wechat-digests/{timestamp}.md"
+  -o "{project_root}/daily-digests/YYYY-MM-DD/wechat_HH-MM.md"
 ```
 
-The `{timestamp}` should be in `YYYY-MM-DD_HH-MM` format based on current time.
+Replace `YYYY-MM-DD` with today's date and `HH-MM` with current time.
 
 ## Performance Notes
 

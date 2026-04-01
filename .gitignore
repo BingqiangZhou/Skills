@@ -1,13 +1,14 @@
-
 podcast-workspace/
 wechat-workspace/
+tech-daily-workspace/
 .vscode/
 __pycache__/
 
-# podcast-digests: only keep the latest file tracked
-podcast-digests/*
-!podcast-digests/2026-03-31_14-00.md
+# Legacy digest directories (kept for reference)
+podcast-digests/
+wechat-digests/
+tech-daily-digests/
 
-# wechat-digests: only keep the latest file tracked
-wechat-digests/*
-!wechat-digests/2026-03-31_18-30.md
+# Unified daily digests: only keep latest day tracked
+daily-digests/*
+!daily-digests/.gitkeep

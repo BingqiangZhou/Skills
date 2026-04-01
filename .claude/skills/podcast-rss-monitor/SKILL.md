@@ -28,7 +28,9 @@ Users can optionally specify:
 
 ```
 project_root/
-├── podcast-digests/              # Output: final digest reports (permanent)
+├── daily-digests/                    # Unified output directory for all digest reports
+│   └── YYYY-MM-DD/                   # Daily subdirectory
+│       └── podcast_HH-mm.md          # Podcast digest report
 ├── podcast-workspace/            # Intermediate files (gitignored, auto-cleaned)
 │   ├── latest_updates.json       # Step 1 output
 │   ├── .http_cache.json          # HTTP ETag/If-Modified-Since cache
@@ -57,6 +59,7 @@ All intermediate files go into `{project_root}/podcast-workspace/`. This keeps t
 
 ```bash
 mkdir -p "{project_root}/podcast-workspace"
+mkdir -p "{project_root}/daily-digests/$(date +%Y-%m-%d)"
 cd "{skill_directory}" && python scripts/check_updates.py \
   --count 1000 --hours 24 --workers 30 \
   --output "{project_root}/podcast-workspace/latest_updates.json" \
@@ -209,7 +212,7 @@ print(f'Merged {len(merged)} summaries')
 ```bash
 cd "{skill_directory}" && python scripts/generate_report.py \
   -i "{project_root}/podcast-workspace/latest_updates.json" \
-  -o "{project_root}/podcast-digests/YYYY-MM-DD_HH-mm.md"
+  -o "{project_root}/daily-digests/YYYY-MM-DD/podcast_HH-mm.md"
 ```
 
 ---
@@ -220,14 +223,14 @@ cd "{skill_directory}" && python scripts/generate_report.py \
 cd "{skill_directory}" && python scripts/generate_report.py \
   -i "{project_root}/podcast-workspace/latest_updates.json" \
   -s "{project_root}/podcast-workspace/ai_summaries.json" \
-  -o "{project_root}/podcast-digests/YYYY-MM-DD_HH-mm.md"
+  -o "{project_root}/daily-digests/YYYY-MM-DD/podcast_HH-mm.md"
 ```
 
-**Directory**: `{project_root}/podcast-digests/`
+**Directory**: `{project_root}/daily-digests/YYYY-MM-DD/`
 
-**Filename**: `YYYY-MM-DD_HH-mm.md`
+**Filename**: `podcast_HH-mm.md`
 
-Create the directory if it doesn't exist. Always write to the project root `podcast-digests/` (not inside `.claude/`).
+Create the directory if it doesn't exist. Replace `YYYY-MM-DD` with today's date and `HH-mm` with current time.
 
 ---
 
@@ -260,7 +263,7 @@ Main Agent
   Step 3: python generate_report.py
           |- Merges AI summaries with update data
           |- Fallback to truncation for missing summaries
-          |- Output: podcast-digests/YYYY-MM-DD_HH-mm.md
+          |- Output: daily-digests/YYYY-MM-DD/podcast_HH-mm.md
 ```
 
 ---
@@ -293,5 +296,5 @@ User: podcast update
 - 检查播客: {total} 个 (RSS: {rss}, 小宇宙: {xy})
 - 发现更新: {count} 个
 - 错误/跳过: {errors} 个
-- 输出文件: ./podcast-digests/YYYY-MM-DD_HH-mm.md
+- 输出文件: ./daily-digests/YYYY-MM-DD/podcast_HH-mm.md
 ```
