@@ -33,21 +33,23 @@ Development (开发), Other (其他), and User Submitted (用户提交).
   scripts/
     fetch_feed_list.py      # Fetch & parse feed list from GitHub
     check_updates.py        # Check RSS feeds for new articles
-    fetch_articles.py       # Enrich articles with full content from URLs
+    fetch_articles.py       # [optional] Enrich articles with full content from URLs
+    merge_summaries.py      # Merge per-batch AI summaries into one file
     generate_report.py      # Generate Markdown digest report
   references/
     feeds.json              # Cached feed list (~395 feeds, refreshed weekly)
+                            # NOTE: feeds.json records its own metadata.fetch_time,
+                            # which is the source of truth for cache freshness.
 
 {project_root}/
   wechat-workspace/         # Runtime intermediate files
-    .feed_list_cache.json
     .http_cache.json
     latest_updates.json
     wechat_batch_N.json     # Batches for AI summarization
     ai_summaries_batch_N.json
     ai_summaries.json
   daily-digests/YYYY-MM-DD/ # Unified output directory
-    wechat_HH-MM.md
+    wechat_HH-MM.md         # (times shown in CST / UTC+8)
 ```
 
 ## Execution Steps
@@ -65,16 +67,19 @@ mkdir -p "{project_root}/daily-digests/$(date +%Y-%m-%d)"
 
 ### Step 1: Fetch/update the feed list
 
-Only run if `references/feeds.json` is missing or older than 7 days.
+Only run if `references/feeds.json` is missing or older than 7 days. Freshness
+is determined from `feeds.json`'s own `metadata.fetch_time` (the source of
+truth), so no separate cache file is required.
 
 ```bash
 cd "{skill_directory}" && python scripts/fetch_feed_list.py \
-  --output "{skill_directory}/references/feeds.json" \
-  --cache "{project_root}/wechat-workspace/.feed_list_cache.json"
+  --output "{skill_directory}/references/feeds.json"
 ```
 
 Options:
 - `--force` to force refresh regardless of cache age
+- `--cache PATH` legacy sidecar cache file (optional; output freshness is
+  read from feeds.json directly)
 
 ### Step 2: Check RSS feeds for new articles
 
@@ -94,6 +99,11 @@ Options:
 After the script finishes, read the output JSON and check
 `metadata.update_count`. If it is 0, stop and inform the user that no
 new articles were found.
+
+Watch the console output for a `date_unparsed_count` warning. A non-zero
+count means some items had dates that could not be parsed and were dropped
+— a high value usually signals wechat2rss changed its date format and
+needs investigation (inspect `pub_date_raw` in the output JSON).
 
 Each update now contains a `full_text` field with the complete article
 text extracted from the RSS feed's `content:encoded`. For most articles
@@ -160,11 +170,16 @@ CRITICAL - Encoding rules to avoid broken JSON:
 - Example: with open(path, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
 ```
 
-3. After all sub-agents complete, manually merge the batch summary files
-   into a single `wechat-workspace/ai_summaries.json`:
-   - Read each `ai_summaries_batch_N.json` file
-   - Combine all `summaries` arrays into one list
-   - Write the merged result using Python json.dump() (same encoding rules)
+3. After all sub-agents complete, merge the batch summary files into a
+   single `wechat-workspace/ai_summaries.json` using the merge script. It
+   handles missing/corrupt batch files gracefully (skips them with a
+   warning) and de-duplicates by article URL:
+
+   ```bash
+   cd "{skill_directory}" && python scripts/merge_summaries.py \
+     --batch-dir "{project_root}/wechat-workspace" \
+     -o "{project_root}/wechat-workspace/ai_summaries.json"
+   ```
 
 If sub-agents are not available (e.g., in Claude.ai), skip this step.
 The report generator will use the raw description text as fallback.
@@ -178,7 +193,13 @@ cd "{skill_directory}" && python scripts/generate_report.py \
   -o "{project_root}/daily-digests/YYYY-MM-DD/wechat_HH-MM.md"
 ```
 
-Replace `YYYY-MM-DD` with today's date and `HH-MM` with current time.
+Replace `YYYY-MM-DD` with today's date (CST) and `HH-MM` with current time.
+Report timestamps are shown in CST (UTC+8) for the Chinese-reading audience.
+
+Report grouping: articles are grouped by category (安全/开发/其他/用户提交).
+Because 安全 dominates (~326 feeds), when it has more than 8 updates it is
+further split into sub-groups (漏洞情报/CVE, 应急响应/攻防, 逆向/二进制,
+移动/物联网, 安全工具/开发, 安全资讯/其他) by keyword for readability.
 
 ## Performance Notes
 

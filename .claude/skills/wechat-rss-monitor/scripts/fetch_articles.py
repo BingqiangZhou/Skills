@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Fetch full article content from WeChat article URLs.
 
-Reads latest_updates.json, attempts to fetch the full article text from
-each article's mp.weixin.qq.com URL, and enriches the updates with
-full_text content. Falls back to the RSS content:encoded if direct
-fetching fails (e.g., WeChat's anti-scraping measures).
+OPTIONAL / rarely useful. The RSS feed's content:encoded (already stored in
+`full_text` by check_updates.py) is almost always complete enough for
+summarization. Only run this if many articles have `full_text` under ~200 chars.
 
-For best results, the RSS feed's content:encoded is the primary source.
-This script serves as an enrichment layer for articles that need more content.
+NOTE: Direct requests to mp.weixin.qq.com are usually blocked by WeChat's
+anti-scraping measures (returns a verification page, not the article). When
+that happens this script keeps the RSS-derived text and reports a failure
+count — it never overwrites good content with worse content. Treat this as a
+best-effort enrichment layer, not a reliable source.
 """
 
 import argparse
