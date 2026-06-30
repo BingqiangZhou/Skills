@@ -4,14 +4,12 @@
 - RSS 类型：直接请求 RSS feed 解析 XML，支持 If-Modified-Since 增量更新
 - 小宇宙类型：请求页面解析最新单集，支持日期过滤
 - 并发处理，错误统计
-- 广告内容过滤（内置，不依赖外部步骤）
+- 广告内容过滤由 Step 2 的子代理完成（见 SKILL.md），本脚本只做抓取与解析
 """
 
 import json
 import sys
 import re
-import os
-import ssl
 import time
 import random
 from datetime import datetime, timedelta, timezone
@@ -24,9 +22,12 @@ from urllib.parse import urlparse
 import urllib.request
 import urllib.error
 
-# 设置超时
-TIMEOUT = 15
-MAX_RETRIES = 2
+from _common import (
+    TIMEOUT,
+    create_ssl_context,
+    fetch_url,
+    parse_xiaoyuzhou_next_data as _parse_xiaoyuzhou_next_data,
+)
 
 def get_utc_now():
     """获取当前 UTC 时间"""
@@ -119,91 +120,19 @@ def parse_rss_date(date_str):
             continue
     return None
 
-def _create_ssl_context(relaxed=False):
-    """创建 SSL context。relaxed=True 时跳过证书验证（仅用于重试）"""
-    if relaxed:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-    return ssl.create_default_context()
-
-def fetch_url(url, etag=None, last_modified=None, max_retries=MAX_RETRIES):
-    """获取 URL 内容，支持 ETag / If-Modified-Since 增量请求，带重试"""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/rss+xml, application/xml, text/xml, */*'
-    }
-    if etag:
-        headers['If-None-Match'] = etag
-    if last_modified:
-        headers['If-Modified-Since'] = last_modified
-
-    last_error = None
-    for attempt in range(max_retries + 1):
-        try:
-            # SSL 错误重试时使用宽松 context
-            use_relaxed = attempt > 0 and last_error and 'SSL' in str(last_error)
-            ctx = _create_ssl_context(relaxed=use_relaxed)
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as response:
-                if response.status == 304:
-                    return None  # 未修改
-                content = response.read()
-                resp_etag = response.headers.get('ETag')
-                resp_lm = response.headers.get('Last-Modified')
-                for encoding in ['utf-8', 'gbk', 'gb2312', 'latin-1']:
-                    try:
-                        text = content.decode(encoding)
-                        return {'content': text, 'etag': resp_etag, 'last_modified': resp_lm}
-                    except (UnicodeDecodeError, LookupError):
-                        continue
-                text = content.decode('utf-8', errors='replace')
-                return {'content': text, 'etag': resp_etag, 'last_modified': resp_lm}
-        except urllib.error.HTTPError as e:
-            last_error = e
-            if e.code == 304:
-                return None  # Not Modified，不是错误
-            if e.code == 429 and attempt < max_retries:
-                wait = int(e.headers.get('Retry-After', 2 * (attempt + 1)))
-                time.sleep(wait + random.uniform(0, 1))
-                continue
-            if e.code >= 500 and attempt < max_retries:
-                time.sleep((2 ** attempt) + random.uniform(0, 1))
-                continue
-            raise
-        except (urllib.error.URLError, OSError) as e:
-            last_error = e
-            if attempt < max_retries:
-                time.sleep((2 ** attempt) + random.uniform(0, 1))
-                continue
-            raise
-
 def parse_xiaoyuzhou_next_data(html_content):
-    """Extract and parse __NEXT_DATA__ JSON from Xiaoyuzhou HTML page.
+    """Extract __NEXT_DATA__ from a Xiaoyuzhou page.
 
-    Returns (buildId, episodes_list) on success, or (None, None) on failure.
-    episodes_list is the array from props.pageProps.podcast.episodes.
+    Thin wrapper over _common.parse_xiaoyuzhou_next_data preserving this
+    module's existing (buildId, episodes) return shape. Returns (None, None)
+    when the page data can't be parsed.
     """
-    match = re.search(
-        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
-        html_content,
-        re.DOTALL
-    )
-    if not match:
+    page_data = _parse_xiaoyuzhou_next_data(html_content)
+    if page_data is None:
         return None, None
-
-    try:
-        page_data = json.loads(match.group(1))
-    except (json.JSONDecodeError, ValueError):
-        return None, None
-
-    try:
-        build_id = page_data.get('buildId')
-        episodes = page_data['props']['pageProps']['podcast']['episodes']
-        return build_id, episodes
-    except (KeyError, TypeError):
-        return None, None
+    build_id = page_data.get('buildId')
+    episodes = page_data['props']['pageProps']['podcast']['episodes']
+    return build_id, episodes
 
 def parse_iso8601_date(date_str):
     """Parse ISO 8601 date string (e.g. '2024-11-04T04:19:30.561Z').
@@ -280,7 +209,7 @@ def check_rss_update(podcast, cutoff_time, cache=None):
     except urllib.error.HTTPError as e:
         error_info = f"HTTP {e.code}"
     except ET.ParseError as e:
-        error_info = f"XML解析失败"
+        error_info = f"XML解析失败: {e}"
     except urllib.error.URLError as e:
         error_info = f"网络错误: {e.reason}"
     except Exception as e:
@@ -341,8 +270,10 @@ def check_xiaoyuzhou_update(podcast, cutoff_time, cache=None):
 
         result = fetch_url(url, etag=etag, last_modified=last_modified)
         if result is None:
-            # 304 Not Modified
-            return updates, error_info, None
+            # 304 Not Modified — return None for `updates` so the main loop
+            # (which checks `if updates is None`) counts this as not_modified.
+            # (Matches the RSS path's convention in check_rss_update.)
+            return None, None, None
 
         content = result['content']
         if result.get('etag') or result.get('last_modified'):
@@ -461,7 +392,10 @@ def main():
     errors = 0
     error_details = {}
     not_modified = 0
-    new_cache = dict(cache)
+    # Seed the new cache only with URLs we still monitor, so entries for feeds
+    # no longer in podcasts.json get pruned instead of accumulating forever.
+    current_urls = {p['url'] for p in podcasts}
+    new_cache = {u: cache[u] for u in current_urls if u in cache}
 
     def process_podcast(podcast):
         if podcast.get('link_type') == 'rss':
@@ -518,7 +452,12 @@ def main():
                     if cache_entry:
                         new_cache[podcast['url']] = cache_entry
             except Exception as e:
-                errors += 1
+                # The whole domain group failed (single root cause). Count every
+                # podcast in the group as checked + errored so the checked_count
+                # denominator (used by the ">5% error" heuristic) stays accurate.
+                group_size = len(domain_groups[domain])
+                checked += group_size
+                errors += group_size
                 err_name = type(e).__name__
                 error_details[err_name] = error_details.get(err_name, 0) + 1
 

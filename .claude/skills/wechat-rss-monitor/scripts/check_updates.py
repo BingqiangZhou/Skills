@@ -10,6 +10,7 @@ with rate limiting for the single-domain wechat2rss.xlab.app host.
 """
 
 import argparse
+import html
 import json
 import random
 import re
@@ -59,12 +60,19 @@ class _HTMLStripper(HTMLParser):
             self._pieces.append(data)
 
     def handle_entityref(self, name):
-        """Handle named entities like &amp; &nbsp;"""
+        """Handle named entities like &amp; &nbsp; &hellip;"""
         if self._skip_depth > 0:
             return
+        # Fast path for common entities, then fall back to html.unescape for
+        # the long tail (hellip, ldquo, rdquo, middot, rsaquo, etc.) which
+        # WeChat articles contain frequently.
         entities = {'amp': '&', 'lt': '<', 'gt': '>', 'nbsp': '', 'quot': '"',
                      'apos': "'", 'mdash': '—', 'ndash': '–', 'bull': '•'}
-        self._pieces.append(entities.get(name, f'&{name};'))
+        if name in entities:
+            self._pieces.append(entities[name])
+        else:
+            decoded = html.unescape(f'&{name};')
+            self._pieces.append(decoded)
 
     def handle_charref(self, name):
         """Handle numeric entities like &#39; &#x27;"""
@@ -311,30 +319,41 @@ def parse_rss_items(xml_text):
 def check_feed(feed, cutoff_time, cache):
     """Check a single RSS feed for new articles.
 
-    Returns (feed_info, articles, error, new_cache_entry).
+    Returns (feed_info, articles, error, new_cache_entry, date_unparsed_count).
+    date_unparsed_count is the number of items whose pubDate could not be
+    parsed — these are dropped silently otherwise, so callers can surface a
+    warning if the count is unexpectedly high.
     """
     url = feed["url"]
 
     if not feed.get("active", True):
-        return feed, [], None, {}
+        return feed, [], None, {}, 0
 
     body, status, new_cache = fetch_url_with_retry(url, cache=cache)
 
     if body is None:
         if status == 304:
-            return feed, [], "not_modified", new_cache
-        return feed, [], f"HTTP {status}", new_cache
+            return feed, [], "not_modified", new_cache, 0
+        return feed, [], f"HTTP {status}", new_cache, 0
 
     # Parse RSS items
     rss_items = parse_rss_items(body)
     articles = []
+    date_unparsed = 0
 
     for item in rss_items:
         # Parse and filter by date
         pub_date_raw = item.get("pub_date_raw", "")
         pub_date = parse_rss_date(pub_date_raw)
 
-        if pub_date and pub_date > cutoff_time:
+        if not pub_date:
+            # An item with a non-empty date we couldn't parse is suspicious —
+            # count it so the caller can warn. (Items with no date at all are
+            # also counted; both are dropped from the output.)
+            date_unparsed += 1
+            continue
+
+        if pub_date > cutoff_time:
             # Get the best available description / full content
             desc_html = item.get("content_encoded") or item.get("description") or ""
             full_text = strip_html(desc_html)
@@ -350,19 +369,19 @@ def check_feed(feed, cutoff_time, cache):
                 "full_text": full_text,
             })
 
-    return feed, articles, None, new_cache
+    return feed, articles, None, new_cache, date_unparsed
 
 
 def process_feed_with_semaphore(feed, cutoff_time, cache, semaphore):
     """Process a single feed with global concurrency limiting via semaphore."""
     if not feed.get("active", True):
-        return feed, [], None, {}
+        return feed, [], None, {}, 0
 
     with semaphore:
         # Global rate limit: small random delay to avoid bursts
         time.sleep(random.uniform(0.3, 0.5))
-        feed_info, articles, error, new_cache = check_feed(feed, cutoff_time, cache)
-    return feed_info, articles, error, new_cache
+        feed_info, articles, error, new_cache, date_unparsed = check_feed(feed, cutoff_time, cache)
+    return feed_info, articles, error, new_cache, date_unparsed
 
 
 # ---------------------------------------------------------------------------
@@ -466,13 +485,16 @@ def main():
     updates = []
     error_count = 0
     not_modified_count = 0
+    date_unparsed_count = 0
     error_details = {}
     category_stats = {}
 
-    for feed_info, articles, error, new_cache in all_results:
+    for feed_info, articles, error, new_cache, date_unparsed in all_results:
         # Update HTTP cache
         if new_cache:
             cache[feed_info["url"]] = new_cache
+
+        date_unparsed_count += date_unparsed
 
         cat = feed_info["category"]
         if cat not in category_stats:
@@ -517,6 +539,7 @@ def main():
             "checked_count": len(feeds),
             "error_count": error_count,
             "not_modified_count": not_modified_count,
+            "date_unparsed_count": date_unparsed_count,
             "error_details": error_details,
             "hours": args.hours,
             "update_count": len(updates),
@@ -547,6 +570,10 @@ def main():
         if error_rate > 0.05:
             print(f"WARNING: Error rate {error_rate:.1%} exceeds 5% threshold")
     print(f"Not modified: {meta['not_modified_count']}")
+    if meta["date_unparsed_count"] > 0:
+        print(f"Items with unparseable dates (dropped): {meta['date_unparsed_count']}")
+        print("WARNING: A high count here may indicate wechat2rss changed its "
+              "date format. Inspect pub_date_raw in the output.")
 
     for cat, stats in category_stats.items():
         if stats["updates"] > 0:

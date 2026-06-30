@@ -30,8 +30,8 @@ Users can optionally specify:
 project_root/
 ├── daily-digests/                    # Unified output directory for all digest reports
 │   └── YYYY-MM-DD/                   # Daily subdirectory
-│       └── podcast_HH-mm.md          # Podcast digest report
-├── podcast-workspace/            # Intermediate files (gitignored, auto-cleaned)
+│       └── podcast_HH-MM.md          # Podcast digest report
+├── podcast-workspace/            # Intermediate files (gitignored). Stale batch files are cleaned at the start of each run (Step 1).
 │   ├── latest_updates.json       # Step 1 output
 │   ├── .http_cache.json          # HTTP ETag/If-Modified-Since cache
 │   ├── podcast_batch_N.json      # Batch input for sub-agents
@@ -42,6 +42,7 @@ project_root/
 └── .claude/skills/podcast-rss-monitor/
     ├── SKILL.md                  # This file
     ├── scripts/
+    │   ├── _common.py                  # Shared HTTP/SSL/parse helpers (stdlib only)
     │   ├── check_updates.py           # Main update checker
     │   ├── resolve_xiaoyuzhou_urls.py  # Resolve non-XYZ URLs to XYZ episode links
     │   └── generate_report.py         # Report generator
@@ -60,6 +61,8 @@ All intermediate files go into `{project_root}/podcast-workspace/`. This keeps t
 ```bash
 mkdir -p "{project_root}/podcast-workspace"
 mkdir -p "{project_root}/daily-digests/$(date +%Y-%m-%d)"
+# Clean stale batch files from previous runs (clean restart)
+rm -f "{project_root}/podcast-workspace"/podcast_batch_*.json "{project_root}/podcast-workspace"/ai_summaries_batch_*.json
 cd "{skill_directory}" && python scripts/check_updates.py \
   --count 1000 --hours 24 --workers 30 \
   --output "{project_root}/podcast-workspace/latest_updates.json" \
@@ -181,6 +184,13 @@ Use this exact format (key = episode_url, value = summary):
 
 IMPORTANT: You MUST write the file using the Write tool. The file must be valid JSON.
 
+CRITICAL - Encoding rules to avoid broken JSON:
+- MUST use Python json.dump() to write the JSON file, NOT bash heredoc/echo/cat
+- Do NOT use Chinese smart quotes (\u201c \u201d) in ai_summary text — use
+  straight quotes (") or avoid quotes altogether
+- Use ensure_ascii=False and encoding="utf-8" when writing
+- Example: with open(path, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
+
 Requirements:
 1. Each summary must be exactly ONE sentence
 2. 30-50 Chinese characters
@@ -212,7 +222,7 @@ print(f'Merged {len(merged)} summaries')
 ```bash
 cd "{skill_directory}" && python scripts/generate_report.py \
   -i "{project_root}/podcast-workspace/latest_updates.json" \
-  -o "{project_root}/daily-digests/YYYY-MM-DD/podcast_HH-mm.md"
+  -o "{project_root}/daily-digests/YYYY-MM-DD/podcast_HH-MM.md"
 ```
 
 ---
@@ -223,14 +233,14 @@ cd "{skill_directory}" && python scripts/generate_report.py \
 cd "{skill_directory}" && python scripts/generate_report.py \
   -i "{project_root}/podcast-workspace/latest_updates.json" \
   -s "{project_root}/podcast-workspace/ai_summaries.json" \
-  -o "{project_root}/daily-digests/YYYY-MM-DD/podcast_HH-mm.md"
+  -o "{project_root}/daily-digests/YYYY-MM-DD/podcast_HH-MM.md"
 ```
 
 **Directory**: `{project_root}/daily-digests/YYYY-MM-DD/`
 
-**Filename**: `podcast_HH-mm.md`
+**Filename**: `podcast_HH-MM.md`
 
-Create the directory if it doesn't exist. Replace `YYYY-MM-DD` with today's date and `HH-mm` with current time.
+Create the directory if it doesn't exist. Replace `YYYY-MM-DD` with today's date and `HH-MM` with current time.
 
 ---
 
@@ -263,7 +273,7 @@ Main Agent
   Step 3: python generate_report.py
           |- Merges AI summaries with update data
           |- Fallback to truncation for missing summaries
-          |- Output: daily-digests/YYYY-MM-DD/podcast_HH-mm.md
+          |- Output: daily-digests/YYYY-MM-DD/podcast_HH-MM.md
 ```
 
 ---
@@ -296,5 +306,5 @@ User: podcast update
 - 检查播客: {total} 个 (RSS: {rss}, 小宇宙: {xy})
 - 发现更新: {count} 个
 - 错误/跳过: {errors} 个
-- 输出文件: ./daily-digests/YYYY-MM-DD/podcast_HH-mm.md
+- 输出文件: ./daily-digests/YYYY-MM-DD/podcast_HH-MM.md
 ```

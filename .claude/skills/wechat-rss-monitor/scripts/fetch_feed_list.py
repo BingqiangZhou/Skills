@@ -149,22 +149,47 @@ def is_cache_valid(cache_data):
         return False
 
 
+def output_age_valid(output_path):
+    """Check the actual feeds.json freshness from its own metadata.
+
+    The feeds.json output records `metadata.fetch_time`, so it is the source
+    of truth — we no longer rely solely on a separate sidecar cache file that
+    can drift out of sync (see issue: cache-path mismatch between SKILL.md and
+    the default). Returns True if the output is fresh and no re-fetch is needed.
+    """
+    if not output_path.exists():
+        return False, None
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return False, None
+    fetch_time = data.get("metadata", {}).get("fetch_time")
+    if not fetch_time:
+        return False, None
+    if is_cache_valid({"fetch_time": fetch_time}):
+        return True, fetch_time
+    return False, fetch_time
+
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch and parse Wechat2RSS feed list")
     parser.add_argument("--output", required=True, help="Output JSON file path")
-    parser.add_argument("--cache", default=None, help="Cache metadata file path")
+    parser.add_argument("--cache", default=None, help="Cache metadata file path (legacy; output freshness is read from feeds.json itself)")
     parser.add_argument("--force", action="store_true", help="Force refresh ignoring cache")
     args = parser.parse_args()
 
     output_path = Path(args.output)
     cache_path = args.cache or str(output_path.parent / ".feed_list_cache.json")
 
-    # Check cache validity
+    # Check cache validity. Primary source of truth is feeds.json's own
+    # metadata.fetch_time; the sidecar --cache file is kept for backward
+    # compatibility only. Both must indicate fresh to skip a re-fetch.
     if not args.force and output_path.exists():
-        cache_data = load_cache(cache_path)
-        if is_cache_valid(cache_data):
-            print(f"Feed list cache is still valid (fetched at {cache_data.get('fetch_time', 'unknown')})")
-            print(f"Use --force to force refresh")
+        fresh, fetch_time = output_age_valid(output_path)
+        if fresh:
+            print(f"Feed list is still valid (fetched at {fetch_time})")
+            print("Use --force to force refresh")
             return
 
     # Fetch the Markdown source
