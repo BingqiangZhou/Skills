@@ -107,9 +107,11 @@ def generate_report(json_path, output_path=None, summaries_path=None):
     if output_path:
         output_file = Path(output_path)
     else:
-        output_dir = Path(__file__).parent.parent.parent.parent / 'podcast-digests'
+        # scripts/ -> podcast-rss-monitor -> skills -> .claude -> project_root
+        # Use the unified daily-digests/ output dir, dated subdir, podcast_ prefix.
+        output_dir = Path(__file__).parent.parent.parent.parent.parent / 'daily-digests' / date_str
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / f'{date_str}_{time_str.replace(":", "-")}.md'
+        output_file = output_dir / f'podcast_{time_str.replace(":", "-")}.md'
 
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(content)

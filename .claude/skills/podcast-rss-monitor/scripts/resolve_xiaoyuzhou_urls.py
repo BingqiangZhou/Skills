@@ -8,86 +8,33 @@
 
 import json
 import re
-import ssl
 import sys
 import time
 import random
-import urllib.request
-import urllib.error
 from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-TIMEOUT = 15
-MAX_RETRIES = 2
+from _common import fetch_url as _fetch_url_raw, extract_xiaoyuzhou_episodes
 
 
-def _create_ssl_context(relaxed=False):
-    if relaxed:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-    return ssl.create_default_context()
+def fetch_url(url):
+    """获取 URL 的 HTML 文本（用于小宇宙页面抓取）。
 
-
-def fetch_url(url, max_retries=MAX_RETRIES):
-    """获取 URL 内容"""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html, */*'
-    }
-    last_error = None
-    for attempt in range(max_retries + 1):
-        try:
-            use_relaxed = attempt > 0 and last_error and 'SSL' in str(last_error)
-            ctx = _create_ssl_context(relaxed=use_relaxed)
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as response:
-                content = response.read()
-                for encoding in ['utf-8', 'gbk', 'gb2312', 'latin-1']:
-                    try:
-                        return content.decode(encoding)
-                    except (UnicodeDecodeError, LookupError):
-                        continue
-                return content.decode('utf-8', errors='replace')
-        except urllib.error.HTTPError as e:
-            last_error = e
-            if e.code >= 500 and attempt < max_retries:
-                time.sleep((2 ** attempt) + random.uniform(0, 1))
-                continue
-            raise
-        except (urllib.error.URLError, OSError) as e:
-            last_error = e
-            if attempt < max_retries:
-                time.sleep((2 ** attempt) + random.uniform(0, 1))
-                continue
-            raise
-    raise last_error
+    Thin wrapper over _common.fetch_url: drops ETag/Last-Modified support (the
+    resolver always wants fresh page content) and returns the decoded body
+    string directly, or None on 304.
+    """
+    result = _fetch_url_raw(url, accept='text/html, */*')
+    if result is None:
+        return None
+    return result['content']
 
 
 def parse_xiaoyuzhou_episodes(html_content):
     """从小宇宙页面解析出最近单集列表，返回 [(title, eid), ...]"""
-    match = re.search(
-        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
-        html_content,
-        re.DOTALL
-    )
-    if not match:
-        return []
-
-    try:
-        page_data = json.loads(match.group(1))
-    except (json.JSONDecodeError, ValueError):
-        return []
-
-    try:
-        episodes = page_data['props']['pageProps']['podcast']['episodes']
-    except (KeyError, TypeError):
-        return []
-
     result = []
-    for ep in episodes:
+    for ep in extract_xiaoyuzhou_episodes(html_content):
         title = ep.get('title', '').strip()
         eid = ep.get('eid', '').strip()
         if title and eid:
@@ -133,6 +80,42 @@ def load_podcasts_map():
     return {p['name']: p.get('xiaoyuzhou_url', '') for p in data.get('podcasts', []) if p.get('xiaoyuzhou_url')}
 
 
+def resolve_one_podcast(podcast_name, indices, episode_titles, xyz_url):
+    """解析单个播客的小宇宙单集链接。
+
+    线程安全：只读取共享输入，返回结果（idx -> eid|None）由主线程统一回写。
+    Returns (podcast_name, resolved_pairs, failed_count)
+      resolved_pairs: [(idx, eid_or_None), ...]  (eid None 表示未匹配，计入 failed)
+      failed_count:   无法解析/未匹配的更新数（含无 xyz_url、无单集数据、抛异常）
+    """
+    if not xyz_url:
+        print(f'  [跳过] {podcast_name}: 无小宇宙页面链接')
+        return podcast_name, [(idx, None) for idx in indices], len(indices)
+
+    try:
+        html = fetch_url(xyz_url)
+        episodes = parse_xiaoyuzhou_episodes(html)
+
+        if not episodes:
+            print(f'  [失败] {podcast_name}: 小宇宙页面无单集数据')
+            return podcast_name, [(idx, None) for idx in indices], len(indices)
+
+        pairs = []
+        for idx in indices:
+            eid = match_episode(episode_titles[idx], episodes)
+            if not eid:
+                print(f'  [未匹配] {podcast_name}: "{episode_titles[idx][:30]}" 在 {len(episodes)} 个单集中未找到')
+            pairs.append((idx, eid))
+
+        # 请求间抖动延迟，降低对同一域名并发的限流风险
+        time.sleep(random.uniform(0.2, 0.5))
+        return podcast_name, pairs, 0
+
+    except Exception as e:
+        print(f'  [错误] {podcast_name}: {type(e).__name__}: {e}')
+        return podcast_name, [(idx, None) for idx in indices], len(indices)
+
+
 def resolve_updates(input_path, output_path=None):
     """解析所有非小宇宙单集链接"""
     with open(input_path, 'r', encoding='utf-8') as f:
@@ -160,41 +143,28 @@ def resolve_updates(input_path, output_path=None):
         name = updates[idx]['podcast_name']
         podcast_indices[name].append(idx)
 
-    # 按播客获取小宇宙单集列表
+    # 标题快照（只读，供 worker 读取，避免并发访问 updates 列表）
+    episode_titles = [u.get('episode_title', '') for u in updates]
+
+    # 按播客并发解析。目标都是 xiaoyuzhoufm.com 同一域名，受控并发 + 抖动延迟防限流。
+    # 各 worker 只返回 (idx, eid)，主线程统一回写 updates，无共享可变状态。
     resolved = 0
     failed = 0
-    for podcast_name, indices in podcast_indices.items():
-        xyz_url = podcasts_map.get(podcast_name)
-        if not xyz_url:
-            print(f'  [跳过] {podcast_name}: 无小宇宙页面链接')
-            failed += len(indices)
-            continue
-
-        try:
-            html = fetch_url(xyz_url)
-            episodes = parse_xiaoyuzhou_episodes(html)
-
-            if not episodes:
-                print(f'  [失败] {podcast_name}: 小宇宙页面无单集数据')
-                failed += len(indices)
-                continue
-
-            for idx in indices:
-                title = updates[idx]['episode_title']
-                eid = match_episode(title, episodes)
+    num_workers = min(len(podcast_indices), 4)
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = [
+            executor.submit(resolve_one_podcast, name, indices, episode_titles, podcasts_map.get(name))
+            for name, indices in podcast_indices.items()
+        ]
+        for future in as_completed(futures):
+            _, pairs, group_failed = future.result()
+            failed += group_failed
+            for idx, eid in pairs:
                 if eid:
                     updates[idx]['episode_url'] = f'https://www.xiaoyuzhoufm.com/episode/{eid}'
                     resolved += 1
                 else:
-                    print(f'  [未匹配] {podcast_name}: "{title[:30]}" 在 {len(episodes)} 个单集中未找到')
                     failed += 1
-
-            # 请求间延迟，避免限流
-            time.sleep(random.uniform(0.2, 0.5))
-
-        except Exception as e:
-            print(f'  [错误] {podcast_name}: {type(e).__name__}: {e}')
-            failed += len(indices)
 
     # 清理已有小宇宙链接的 ?utm_source=rss 后缀
     cleaned = 0
