@@ -127,62 +127,109 @@ Options:
 
 ### Step 3: AI Summarization (parallel sub-agents)
 
-Split the updates into batches of ~10 articles each. Launch up to 4
-sub-agents concurrently using the Agent tool.
+Divide updates into **batches of 10**, create one sub-agent per batch.
 
-For each batch:
+**CRITICAL — avoid two common sub-agent failure modes:**
+1. **Oversized input**: WeChat `full_text` can be thousands of chars per
+   article. A 10-article batch with full text easily exceeds 50KB and causes
+   sub-agent timeouts/context errors. Truncate `full_text` when preparing
+   batches (Step 3a does this for you).
+2. **Broken output JSON**: sub-agents that write JSON via bash
+   `heredoc`/`echo`/`cat` produce malformed files (Chinese smart quotes,
+   encoding errors). The prompt below forces `json.dump()`; and
+   `merge_summaries.py` tolerates any corrupt batches instead of crashing.
 
-1. Write a batch file to `wechat-workspace/wechat_batch_N.json` containing
-   the batch's updates array from `latest_updates.json`.
+**Launch at most 4 sub-agents in parallel** (API rate limiting). Process
+batches group by group; do not launch more than 4 Agent tool calls in a
+single message.
 
-2. Launch a sub-agent with this prompt:
+#### 3a. Prepare batch files (automated)
+
+This creates the batch files deterministically and truncates `full_text` to
+the first 1500 chars (enough for a one-sentence summary) so each batch stays
+small. Run from the project root:
+
+```bash
+cd "{project_root}"
+python -c "
+import json
+with open('wechat-workspace/latest_updates.json','r',encoding='utf-8') as f:
+    data=json.load(f)
+updates=data['updates']
+for i in range(0,len(updates),10):
+    batch=[{'account_name':u['account_name'],'article_title':u['article_title'],
+            'article_url':u['article_url'],
+            'full_text':u.get('full_text','')[:1500]} for u in updates[i:i+10]]
+    n=i//10
+    with open(f'wechat-workspace/wechat_batch_{n}.json','w',encoding='utf-8') as f:
+        json.dump(batch,f,ensure_ascii=False)
+print(f'Saved {(len(updates)+9)//10} batches')
+"
+```
+
+#### 3b. Launch sub-agents (groups of 4)
+
+Total batches = `ceil(update_count / 10)`. Divide into groups of 4. For
+example, 12 batches → groups [0-3], [4-7], [8-11]. Launch each group in one
+message (up to 4 Agent tool calls), wait for the group to finish, then
+launch the next.
+
+**Sub-Agent Prompt Template** (replace `{N}` with the batch index, and
+`{project_root}` with the real path):
 
 ```
-You are summarizing WeChat articles for a daily digest. Read the file
-{project_root}/wechat-workspace/wechat_batch_{N}.json
+Task: Summarize WeChat articles into one Chinese sentence each.
 
-For each article, use the `full_text` field (which contains the complete
-article content extracted from RSS content:encoded) to write a ONE-SENTENCE
-Chinese summary (under 100 characters) that captures the key point or
-takeaway. The summary should be informative and help the reader decide
-whether to read the full article.
+Read the file {project_root}/wechat-workspace/wechat_batch_{N}.json.
 
-If `full_text` is empty or very short, fall back to the `summary_text` field.
+For each article, use the `full_text` field to write ONE concise Chinese
+sentence (under 100 characters) capturing the key point or takeaway, so the
+reader can decide whether to read the full article.
 
-Output a JSON file at {project_root}/wechat-workspace/ai_summaries_batch_{N}.json
-with this exact structure:
+Write the results as JSON to:
+{project_root}/wechat-workspace/ai_summaries_batch_{N}.json
+
+Use this exact structure:
 {
   "summaries": [
     {
       "article_url": "the article_url from the input",
       "account_name": "...",
       "article_title": "...",
-      "ai_summary": "one-sentence Chinese summary"
+      "ai_summary": "一句话中文摘要"
     }
   ]
 }
 
 CRITICAL - Encoding rules to avoid broken JSON:
-- MUST use Python json.dump() to write the JSON file, NOT bash heredoc/echo/cat
-- Do NOT use Chinese smart quotes (\u201c \u201d) in ai_summary text — use
-  straight quotes (") or avoid quotes altogether
-- Use ensure_ascii=False and encoding="utf-8" when writing
-- Example: with open(path, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
+- You MUST write the file using Python json.dump(), NOT bash heredoc/echo/cat.
+- Do NOT use Chinese smart quotes (\u201c \u201d) in the ai_summary text —
+  use straight quotes (") or avoid quotes altogether.
+- Use ensure_ascii=False and encoding="utf-8" when writing.
+- Example:
+    import json
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 ```
 
-3. After all sub-agents complete, merge the batch summary files into a
-   single `wechat-workspace/ai_summaries.json` using the merge script. It
-   handles missing/corrupt batch files gracefully (skips them with a
-   warning) and de-duplicates by article URL:
+#### 3c. Merge batch summaries
 
-   ```bash
-   cd "{skill_directory}" && python scripts/merge_summaries.py \
-     --batch-dir "{project_root}/wechat-workspace" \
-     -o "{project_root}/wechat-workspace/ai_summaries.json"
-   ```
+After all sub-agents complete, merge the batch files into one
+`ai_summaries.json`. `merge_summaries.py` skips any missing/corrupt batch
+files with a warning (instead of crashing) and de-duplicates by article_url:
 
-If sub-agents are not available (e.g., in Claude.ai), skip this step.
-The report generator will use the raw description text as fallback.
+```bash
+cd "{skill_directory}" && python scripts/merge_summaries.py \
+  --batch-dir "{project_root}/wechat-workspace" \
+  -o "{project_root}/wechat-workspace/ai_summaries.json"
+```
+
+If no batch files were produced (all sub-agents failed) it exits cleanly
+and writes nothing — Step 4 will simply fall back to the raw description
+text, so the pipeline never breaks.
+
+If sub-agents are not available at all (e.g., in Claude.ai), skip Step 3
+entirely. The report generator uses the raw description text as fallback.
 
 ### Step 4: Generate the digest report
 
