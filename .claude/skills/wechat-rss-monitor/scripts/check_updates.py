@@ -27,6 +27,30 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 
+# Shared defaults (kept consistent with the other skills' fetch helpers).
+_CHROME_UA = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+)
+
+# Fallback decode order for feed/page bytes (handles Chinese GBK/GB2312 feeds).
+_DECODE_ORDER = ['utf-8', 'gbk', 'gb2312', 'latin-1']
+
+# Named limits instead of inline magic numbers.
+SUMMARY_TEXT_MAX = 2000   # cap for article summary_text / full_text
+ERROR_RATE_WARN = 0.05    # warn when fetch error rate exceeds this ratio
+
+
+def _decode_body(content):
+    """Best-effort decode of response bytes using common Chinese encodings."""
+    for encoding in _DECODE_ORDER:
+        try:
+            return content.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return content.decode('utf-8', errors='replace')
+
+
 # ---------------------------------------------------------------------------
 # HTML to plain text
 # ---------------------------------------------------------------------------
@@ -167,7 +191,7 @@ def fetch_url(url, cache=None, timeout=30):
     Returns (body_text, status_code, new_cache_entry) or (None, status, new_cache_entry).
     status_code is 304 for not-modified, -1 for network errors.
     """
-    headers = {"User-Agent": "WechatRSSMonitor/1.0"}
+    headers = {"User-Agent": _CHROME_UA}
 
     # Add conditional headers from cache
     cached = cache.get(url, {}) if cache else {}
@@ -182,7 +206,7 @@ def fetch_url(url, cache=None, timeout=30):
     try:
         ctx = create_ssl_context()
         with urllib_request.urlopen(req, context=ctx, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
+            body = _decode_body(resp.read())
             status = resp.status
 
             # Save cache headers
@@ -199,14 +223,16 @@ def fetch_url(url, cache=None, timeout=30):
         if e.code == 304:
             return None, 304, cached
         return None, e.code, {}
-    except Exception:
+    except Exception as first_err:
+        print(f"fetch_url: primary request failed for {url}: "
+              f"{type(first_err).__name__}: {first_err}", file=sys.stderr)
         # Retry with relaxed SSL
         try:
             relaxed = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             relaxed.check_hostname = False
             relaxed.verify_mode = ssl.CERT_NONE
             with urllib_request.urlopen(req, context=relaxed, timeout=timeout) as resp:
-                body = resp.read().decode("utf-8", errors="replace")
+                body = _decode_body(resp.read())
                 status = resp.status
                 etag = resp.headers.get("ETag")
                 last_mod = resp.headers.get("Last-Modified")
@@ -219,7 +245,9 @@ def fetch_url(url, cache=None, timeout=30):
             if e.code == 304:
                 return None, 304, cached
             return None, e.code, {}
-        except Exception:
+        except Exception as retry_err:
+            print(f"fetch_url: relaxed-SSL retry also failed for {url}: "
+                  f"{type(retry_err).__name__}: {retry_err}", file=sys.stderr)
             return None, -1, {}
 
 
@@ -235,7 +263,7 @@ def fetch_url_with_retry(url, cache=None, timeout=30, max_retries=2):
             return body, status, new_cache
         # Network error — retry with backoff
         if attempt < max_retries:
-            delay = (attempt + 1) * 2 + random.uniform(0, 1)
+            delay = (2 ** attempt) + random.uniform(0, 1)
             time.sleep(delay)
     return None, -1, {}
 
@@ -358,7 +386,7 @@ def check_feed(feed, cutoff_time, cache):
             desc_html = item.get("content_encoded") or item.get("description") or ""
             full_text = strip_html(desc_html)
             # Short preview for reports
-            summary_text = full_text[:2000] + ("..." if len(full_text) > 2000 else "")
+            summary_text = full_text[:SUMMARY_TEXT_MAX] + ("..." if len(full_text) > SUMMARY_TEXT_MAX else "")
 
             articles.append({
                 "article_title": item.get("title", "(no title)"),
@@ -567,7 +595,7 @@ def main():
     if meta["error_count"] > 0:
         print(f"Errors: {meta['error_count']} ({meta['error_details']})")
         error_rate = meta["error_count"] / max(meta["checked_count"], 1)
-        if error_rate > 0.05:
+        if error_rate > ERROR_RATE_WARN:
             print(f"WARNING: Error rate {error_rate:.1%} exceeds 5% threshold")
     print(f"Not modified: {meta['not_modified_count']}")
     if meta["date_unparsed_count"] > 0:

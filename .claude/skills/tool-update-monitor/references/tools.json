@@ -1,0 +1,121 @@
+{
+  "_comment": "Curated list of tools to monitor for new releases. check_updates.py dispatches by 'source_type'. Add/remove tools here; no code change needed. compare_by: 'semver' (default) or 'date' (for date-based tags like Warp's). exclude_prerelease: skip GitHub prereleases when finding 'latest'.",
+  "categories_order": [
+    "AI 编码代理 / AI Coding Agents",
+    "系统工具 / System Tools",
+    "系统更新 / OS Updates",
+    "网络代理 / Network Proxies"
+  ],
+  "tools": [
+    {
+      "id": "zcode",
+      "name": "ZCode",
+      "category": "AI 编码代理 / AI Coding Agents",
+      "source_type": "html_changelog",
+      "url": "https://zcode.z.ai/en/changelog",
+      "version_regex": "Release v([0-9]+\\.[0-9]+\\.[0-9]+)",
+      "date_regex": "Released ([A-Z][a-z]{2} \\d{1,2}, \\d{4})",
+      "display_name": "ZCode v{version}",
+      "link_url": "https://zcode.z.ai/en/changelog"
+    },
+    {
+      "id": "vscode",
+      "name": "VS Code",
+      "category": "AI 编码代理 / AI Coding Agents",
+      "source_type": "github",
+      "repo": "microsoft/vscode",
+      "exclude_prerelease": true
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "category": "AI 编码代理 / AI Coding Agents",
+      "source_type": "npm",
+      "package": "@anthropic-ai/claude-code",
+      "link_url": "https://github.com/anthropics/claude-code/releases"
+    },
+    {
+      "id": "codex",
+      "name": "OpenAI Codex CLI",
+      "category": "AI 编码代理 / AI Coding Agents",
+      "source_type": "github",
+      "repo": "openai/codex",
+      "tag_prefix": "rust-",
+      "tag_pattern": "^rust-v[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "exclude_prerelease": true
+    },
+    {
+      "id": "openclaw",
+      "name": "OpenClaw",
+      "category": "AI 编码代理 / AI Coding Agents",
+      "source_type": "github",
+      "repo": "openclaw/openclaw"
+    },
+    {
+      "id": "hermes-agent",
+      "name": "Hermes Agent",
+      "category": "AI 编码代理 / AI Coding Agents",
+      "source_type": "github",
+      "repo": "NousResearch/hermes-agent"
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "category": "AI 编码代理 / AI Coding Agents",
+      "source_type": "github",
+      "repo": "anomalyco/opencode"
+    },
+    {
+      "id": "homebrew",
+      "name": "Homebrew",
+      "category": "系统工具 / System Tools",
+      "source_type": "github",
+      "repo": "Homebrew/brew"
+    },
+    {
+      "id": "warp",
+      "name": "Warp",
+      "category": "系统工具 / System Tools",
+      "source_type": "github",
+      "repo": "warpdotdev/warp",
+      "compare_by": "date",
+      "tag_pattern": "^v[0-9]+\\.[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.",
+      "_comment": "Warp's real releases use date-based tags like v0.2026.06.09.19.54.dev_00 and are flagged prerelease, so we must NOT set exclude_prerelease. The tag_pattern whitelists this scheme to skip stray build-metadata tags (e.g. tui-screenshots-app5029) that ship mis-flagged as stable."
+    },
+    {
+      "id": "clash-verge-rev",
+      "name": "Clash Verge Rev",
+      "category": "网络代理 / Network Proxies",
+      "source_type": "github",
+      "repo": "clash-verge-rev/clash-verge-rev"
+    },
+    {
+      "id": "v2rayn",
+      "name": "v2rayN",
+      "category": "网络代理 / Network Proxies",
+      "source_type": "github",
+      "repo": "2dust/v2rayN"
+    },
+    {
+      "id": "windows",
+      "name": "Windows 11",
+      "category": "系统更新 / OS Updates",
+      "source_type": "windows",
+      "url": "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information",
+      "link_url": "https://learn.microsoft.com/en-us/windows/release-health/windows-message-center",
+      "win_version": "25H2",
+      "_comment": "Tracks the latest cumulative update build/KB for the configured Windows 11 version (25H2 is the current production release for most users as of mid-2026). Change win_version to 24H2 or 26H1 to track a different channel. The 'version' recorded is the OS build number (e.g. 26200.8973); detection compares builds, so a new monthly update surfaces as 'new'."
+    },
+    {
+      "id": "macos",
+      "name": "macOS Tahoe",
+      "category": "系统更新 / OS Updates",
+      "source_type": "html_changelog",
+      "url": "https://support.apple.com/en-us/122868",
+      "link_url": "https://support.apple.com/en-us/122868",
+      "version_regex": "macOS Tahoe (\\d+\\.\\d+(?:\\.\\d+)?)",
+      "display_name": "macOS Tahoe {version}",
+      "_comment": "Tracks the latest GA point release of macOS Tahoe (26.x) from Apple's official 'What's new' page. The page lists versions newest-first as headings; the regex grabs the first (newest) match. macOS 27 Golden Gate is still in beta (fall 2026) and lives on a separate page, so it is excluded. When 27 goes GA, switch this entry to the macOS 27 'What's new' page and update version_regex to 'macOS 27 (\\d+\\.\\d+(?:\\.\\d+)?)'. No release date is available from this source."
+    }
+  ]
+}

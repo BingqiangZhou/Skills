@@ -27,6 +27,26 @@ FEED_LINK_PATTERN = re.compile(r'^(~~)?\[([^\]]+)\]\(([^)]+)\)(~~)?$')
 HEADING_PATTERN = re.compile(r'^##\s+(.+)$')
 
 
+# Shared defaults (kept consistent with the other skills' fetch helpers).
+_CHROME_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+# Fallback decode order for feed/page bytes (handles Chinese GBK/GB2312 feeds).
+_DECODE_ORDER = ["utf-8", "gbk", "gb2312", "latin-1"]
+
+
+def _decode_body(content):
+    """Best-effort decode of response bytes using common Chinese encodings."""
+    for encoding in _DECODE_ORDER:
+        try:
+            return content.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
 def create_ssl_context():
     """Create an SSL context with fallback for certificate issues."""
     try:
@@ -42,20 +62,27 @@ def create_ssl_context():
 def fetch_url(url, timeout=30):
     """Fetch a URL and return the response body as text."""
     ctx = create_ssl_context()
-    req = urllib.request.Request(url, headers={"User-Agent": "WechatRSSMonitor/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": _CHROME_UA})
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
-            return resp.read().decode("utf-8")
+            return _decode_body(resp.read())
     except Exception as first_err:
+        print(f"fetch_url: primary request failed for {url}: "
+              f"{type(first_err).__name__}: {first_err}", file=sys.stderr)
         # Retry with relaxed SSL
         try:
             relaxed_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             relaxed_ctx.check_hostname = False
             relaxed_ctx.verify_mode = ssl.CERT_NONE
             with urllib.request.urlopen(req, context=relaxed_ctx, timeout=timeout) as resp:
-                return resp.read().decode("utf-8")
-        except Exception:
-            raise first_err
+                return _decode_body(resp.read())
+        except Exception as retry_err:
+            # Surface the retry's actual cause instead of masking it behind the
+            # first error (the first error is often an SSL/conn issue, but the
+            # retry failure is the one that matters for diagnosis here).
+            print(f"fetch_url: relaxed-SSL retry also failed for {url}: "
+                  f"{type(retry_err).__name__}: {retry_err}", file=sys.stderr)
+            raise retry_err
 
 
 def parse_feed_list(markdown_text):

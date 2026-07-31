@@ -25,6 +25,30 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urlunparse
 
 
+# Shared defaults (kept consistent with the other skills' fetch helpers).
+_CHROME_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+# Fallback decode order for feed/page bytes (handles Chinese GBK/GB2312 feeds).
+_DECODE_ORDER = ["utf-8", "gbk", "gb2312", "latin-1"]
+
+# Named limits instead of inline magic numbers.
+DESCRIPTION_MAX = 2000      # cap for article description / full_text
+TITLE_SIM_THRESHOLD = 0.7   # Jaccard similarity above which two titles are dupes
+
+
+def _decode_body(content):
+    """Best-effort decode of response bytes using common Chinese encodings."""
+    for encoding in _DECODE_ORDER:
+        try:
+            return content.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
 # ---------------------------------------------------------------------------
 # HTML to plain text
 # ---------------------------------------------------------------------------
@@ -210,7 +234,7 @@ def create_ssl_context():
 
 def fetch_url(url, cache=None, timeout=30):
     """Fetch a URL with ETag/If-Modified-Since support."""
-    headers = {"User-Agent": "TechDailyRSSMonitor/1.0"}
+    headers = {"User-Agent": _CHROME_UA}
 
     cached = cache.get(url, {}) if cache else {}
     if cached.get("etag"):
@@ -224,7 +248,7 @@ def fetch_url(url, cache=None, timeout=30):
     try:
         ctx = create_ssl_context()
         with urllib_request.urlopen(req, context=ctx, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
+            body = _decode_body(resp.read())
             status = resp.status
             etag = resp.headers.get("ETag")
             last_mod = resp.headers.get("Last-Modified")
@@ -238,13 +262,15 @@ def fetch_url(url, cache=None, timeout=30):
         if e.code == 304:
             return None, 304, cached
         return None, e.code, {}
-    except Exception:
+    except Exception as first_err:
+        print(f"fetch_url: primary request failed for {url}: "
+              f"{type(first_err).__name__}: {first_err}", file=sys.stderr)
         try:
             relaxed = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             relaxed.check_hostname = False
             relaxed.verify_mode = ssl.CERT_NONE
             with urllib_request.urlopen(req, context=relaxed, timeout=timeout) as resp:
-                body = resp.read().decode("utf-8", errors="replace")
+                body = _decode_body(resp.read())
                 status = resp.status
                 etag = resp.headers.get("ETag")
                 last_mod = resp.headers.get("Last-Modified")
@@ -257,7 +283,9 @@ def fetch_url(url, cache=None, timeout=30):
             if e.code == 304:
                 return None, 304, cached
             return None, e.code, {}
-        except Exception:
+        except Exception as retry_err:
+            print(f"fetch_url: relaxed-SSL retry also failed for {url}: "
+                  f"{type(retry_err).__name__}: {retry_err}", file=sys.stderr)
             return None, -1, {}
 
 
@@ -268,7 +296,7 @@ def fetch_url_with_retry(url, cache=None, timeout=30, max_retries=2):
         if body is not None or status == 304:
             return body, status, new_cache
         if attempt < max_retries:
-            delay = (attempt + 1) * 2 + random.uniform(0, 1)
+            delay = (2 ** attempt) + random.uniform(0, 1)
             time.sleep(delay)
     return None, -1, {}
 
@@ -389,7 +417,7 @@ def check_feed(feed_info, cutoff_time, cache):
         if pub_date and pub_date > cutoff_time:
             desc_html = item.get("content_encoded") or item.get("description") or ""
             full_text = strip_html(desc_html)
-            summary_text = full_text[:2000] + ("..." if len(full_text) > 2000 else "")
+            summary_text = full_text[:DESCRIPTION_MAX] + ("..." if len(full_text) > DESCRIPTION_MAX else "")
 
             articles.append({
                 "title": item.get("title", "(no title)"),
@@ -439,7 +467,7 @@ def check_hn_feed(hn_feed, cutoff_time, cache):
 
             desc_html = item.get("description") or item.get("content_encoded") or ""
             full_text = strip_html(desc_html)
-            summary_text = full_text[:2000] + ("..." if len(full_text) > 2000 else "")
+            summary_text = full_text[:DESCRIPTION_MAX] + ("..." if len(full_text) > DESCRIPTION_MAX else "")
 
             articles.append({
                 "title": item.get("title", "(no title)"),
@@ -612,7 +640,7 @@ def main():
             j, b = non_hn_items[idx_b]
             if j in title_dedup_indices:
                 continue
-            if title_similarity(a.get("title", ""), b.get("title", "")) > 0.7:
+            if title_similarity(a.get("title", ""), b.get("title", "")) > TITLE_SIM_THRESHOLD:
                 # Keep the one with longer full_text
                 if len(b.get("full_text", "")) > len(a.get("full_text", "")):
                     title_dedup_indices.add(i)

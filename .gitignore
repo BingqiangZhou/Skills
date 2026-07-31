@@ -1,7 +1,9 @@
-podcast-workspace/
-wechat-workspace/
-tech-daily-workspace/
+# Unified runtime workspaces (one subdir per skill). Keep the directory itself
+# tracked via .gitkeep, but ignore all runtime contents.
+workspaces/*
+!workspaces/.gitkeep
 .vscode/
+.zcode/
 __pycache__/
 
 # Legacy digest directories (kept for reference)

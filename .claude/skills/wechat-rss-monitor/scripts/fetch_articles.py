@@ -52,6 +52,26 @@ class _TextExtractor(HTMLParser):
         return re.sub(r"\s+", " ", text).strip()
 
 
+# Shared defaults (kept consistent with the other skills' fetch helpers).
+_CHROME_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+# Fallback decode order for feed/page bytes (handles Chinese GBK/GB2312 feeds).
+_DECODE_ORDER = ["utf-8", "gbk", "gb2312", "latin-1"]
+
+
+def _decode_body(content):
+    """Best-effort decode of response bytes using common Chinese encodings."""
+    for encoding in _DECODE_ORDER:
+        try:
+            return content.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
 def create_ssl_context():
     try:
         return ssl.create_default_context()
@@ -65,11 +85,7 @@ def create_ssl_context():
 def fetch_html(url, timeout=30):
     """Fetch HTML content from a URL. Returns text or None on failure."""
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": _CHROME_UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     }
@@ -77,8 +93,10 @@ def fetch_html(url, timeout=30):
     try:
         ctx = create_ssl_context()
         with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", errors="replace")
-    except Exception:
+            return _decode_body(resp.read())
+    except Exception as e:
+        print(f"fetch_html: failed for {url}: {type(e).__name__}: {e}",
+              file=sys.stderr)
         return None
 
 

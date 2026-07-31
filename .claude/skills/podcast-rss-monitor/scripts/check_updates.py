@@ -29,6 +29,10 @@ from _common import (
     parse_xiaoyuzhou_next_data as _parse_xiaoyuzhou_next_data,
 )
 
+# Named limits instead of inline magic numbers.
+SHOWNOTES_MAX = 2000     # shownotes 文本的截取长度
+PROGRESS_EVERY = 100     # 每处理多少个播客输出一次进度
+
 def get_utc_now():
     """获取当前 UTC 时间"""
     return datetime.now(timezone.utc)
@@ -203,7 +207,7 @@ def check_rss_update(podcast, cutoff_time, cache=None):
                     'episode_title': title,
                     'episode_url': link,
                     'pub_date': pub_date.strftime('%Y-%m-%d %H:%M'),
-                    'shownotes': plain[:2000] if len(plain) > 2000 else plain,
+                    'shownotes': plain[:SHOWNOTES_MAX] if len(plain) > SHOWNOTES_MAX else plain,
                 })
 
     except urllib.error.HTTPError as e:
@@ -248,7 +252,7 @@ def _check_xiaoyuzhou_fallback(podcast, content):
             'episode_title': title,
             'episode_url': episode_url,
             'pub_date': pub_date.strftime('%Y-%m-%d %H:%M') if pub_date else '未知（小宇宙最新一集）',
-            'shownotes': plain[:2000] if len(plain) > 2000 else plain,
+            'shownotes': plain[:SHOWNOTES_MAX] if len(plain) > SHOWNOTES_MAX else plain,
         })
 
     return updates
@@ -315,7 +319,7 @@ def check_xiaoyuzhou_update(podcast, cutoff_time, cache=None):
                     'episode_title': title,
                     'episode_url': episode_url,
                     'pub_date': pub_date.strftime('%Y-%m-%d %H:%M') if pub_date else '未知（小宇宙）',
-                    'shownotes': plain[:2000] if len(plain) > 2000 else plain,
+                    'shownotes': plain[:SHOWNOTES_MAX] if len(plain) > SHOWNOTES_MAX else plain,
                 })
         else:
             # 后备：旧版正则解析
@@ -379,8 +383,14 @@ def main():
     # 计算截止时间
     cutoff_time = get_utc_now() - timedelta(hours=args.hours)
 
-    # 加载缓存
-    cache_path = Path(args.cache) if args.cache else Path.cwd() / 'podcast-workspace' / '.http_cache.json'
+    # 加载缓存：缓存路径默认从 --output 所在目录派生（与其他技能一致）；
+    # 若未指定 --output（仅打印到 stdout），则回退到项目根的统一 workspaces 目录。
+    if args.cache:
+        cache_path = Path(args.cache)
+    elif args.output:
+        cache_path = Path(args.output).parent / '.http_cache.json'
+    else:
+        cache_path = Path.cwd() / 'workspaces' / 'podcast' / '.http_cache.json'
     cache = load_cache(cache_path)
 
     print(f"检查 {len(podcasts)} 个播客的更新（时间范围: {args.hours}小时）...", file=sys.stderr)
@@ -462,7 +472,7 @@ def main():
                 error_details[err_name] = error_details.get(err_name, 0) + 1
 
             # 进度显示
-            if checked % 100 == 0:
+            if checked % PROGRESS_EVERY == 0:
                 print(f"  进度: {checked}/{len(podcasts)} (更新: {len(all_updates)}, 错误: {errors})", file=sys.stderr)
 
     # 保存缓存

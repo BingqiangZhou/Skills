@@ -7,17 +7,24 @@ import json
 import re
 import sys
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
-def generate_summary(shownotes, max_length=150):
+# The audience of these reports is Chinese readers; display times in CST.
+CST = timezone(timedelta(hours=8))
+
+# Named limits instead of inline magic numbers.
+SHOWNOTES_BASE = 500     # 摘要基础文本的截取长度
+SUMMARY_MAX = 150        # 最终展示摘要的最大长度
+
+def generate_summary(shownotes, max_length=SUMMARY_MAX):
     """生成摘要（简化版，直接截取前 N 字符）"""
     if not shownotes:
         return '内容暂无'
 
-    # 截取前 500 字符作为摘要基础
+    # 截取前 SHOWNOTES_BASE 字符作为摘要基础
     text = shownotes
-    if len(text) > 500:
-        text = text[:500]
+    if len(text) > SHOWNOTES_BASE:
+        text = text[:SHOWNOTES_BASE]
 
     if len(text) > max_length:
         return text[:max_length] + '...'
@@ -59,12 +66,12 @@ def generate_report(json_path, output_path=None, summaries_path=None):
     ai_summaries = load_ai_summaries(summaries_path)
 
     # 生成报告
-    now = datetime.now()
+    now = datetime.now(CST)
     date_str = now.strftime('%Y-%m-%d')
     time_str = now.strftime('%H:%M')
 
     lines = [
-        f'# 播客更新汇总 - {date_str} {time_str}',
+        f'# 播客更新汇总 - {date_str} {time_str} (CST)',
         '',
         f'> 共检查 {metadata["checked_count"]} 个播客，时间范围 {metadata["hours"]} 小时，发现 {metadata["update_count"]} 个更新',
         '',
@@ -139,6 +146,6 @@ if __name__ == '__main__':
     else:
         # 默认使用最新更新文件
         script_dir = Path(__file__).parent
-        json_path = Path.cwd() / 'podcast-workspace' / 'latest_updates.json'
+        json_path = Path.cwd() / 'workspaces' / 'podcast' / 'latest_updates.json'
 
     generate_report(json_path, args.output, args.summaries)

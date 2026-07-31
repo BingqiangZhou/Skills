@@ -193,5 +193,5 @@ if __name__ == '__main__':
     if sys.platform == 'win32':
         sys.stdout.reconfigure(encoding='utf-8')
 
-    input_path = args.input or str(Path.cwd() / 'podcast-workspace' / 'latest_updates.json')
+    input_path = args.input or str(Path.cwd() / 'workspaces' / 'podcast' / 'latest_updates.json')
     resolve_updates(input_path, args.output)

@@ -4,17 +4,20 @@
 Each batch file (ai_summaries_batch_N.json) produced by the summarization
 sub-agents has the shape:
 
-    {"summaries": [ {"article_url": "...", "ai_summary": "..."}, ... ]}
+    {"summaries": [ {"item_url": "...", "ai_summary": "..."}, ... ]}
+
+(Older batches that key on `pr_url` / `issue_url` are still accepted for
+backward compatibility.)
 
 This script globs all such files, merges their `summaries` arrays, drops
-entries whose article_url is empty or whose ai_summary is blank, and
-de-duplicates by article_url (last one wins). Missing or corrupt batch
-files are skipped with a warning instead of aborting the merge.
+entries whose item_url is empty or whose ai_summary is blank, and
+de-duplicates by item_url (last one wins). Missing or corrupt batch files are
+skipped with a warning instead of aborting the merge.
 
 Usage:
     python merge_summaries.py \\
-        --batch-dir {project_root}/workspaces/wechat \\
-        --output   {project_root}/workspaces/wechat/ai_summaries.json
+        --batch-dir {project_root}/workspaces/github-monitor \\
+        --output   {project_root}/workspaces/github-monitor/ai_summaries.json
 
 Options:
     --pattern   glob pattern for batch files
@@ -26,6 +29,18 @@ import glob
 import json
 import sys
 from pathlib import Path
+
+
+def item_url(item):
+    """Return the best available URL key for a summary entry.
+
+    Prefers the generic `item_url`; falls back to the legacy per-type keys
+    (`pr_url` / `issue_url`) so old batch files still merge cleanly.
+    """
+    return (item.get("item_url")
+            or item.get("pr_url")
+            or item.get("issue_url")
+            or "").strip()
 
 
 def load_json(path):
@@ -66,7 +81,7 @@ def main():
 
     print(f"Merging {len(batch_files)} batch file(s)...")
 
-    merged = {}          # article_url -> summary entry (dedup, last wins)
+    merged = {}          # item_url -> summary entry (dedup, last wins)
     total_seen = 0
     total_blank = 0
     skipped_files = 0
@@ -89,7 +104,7 @@ def main():
         for item in summaries:
             if not isinstance(item, dict):
                 continue
-            url = (item.get("article_url") or "").strip()
+            url = item_url(item)
             text = (item.get("ai_summary") or "").strip()
             total_seen += 1
             if not url:

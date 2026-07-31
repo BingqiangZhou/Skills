@@ -1,0 +1,21 @@
+[
+  {
+    "owner": "1c7",
+    "repo": "chinese-independent-developer",
+    "name": "中国独立开发者项目列表",
+    "monitor": ["pulls"],
+    "note": "通过合并 PR 收录新项目；监控新合并 PR = 监控新收录项目"
+  },
+  {
+    "owner": "ruanyf",
+    "repo": "weekly",
+    "name": "阮一峰 科技爱好者周刊",
+    "monitor": ["issues"],
+    "filter": {
+      "drop_pull_requests": true,
+      "drop_owner": true,
+      "title_allow": ["【\\s*(开源自荐|项目自荐|自荐|开源项目|新项目推荐|开源推荐|项目推荐)[】\\s]"],
+      "title_block": ["谁在招人|招聘|求职|内推|招人|周刊|科技爱好者周刊|投稿|求推荐|建议|问题|反馈|讨论|总结"]
+    }
+  }
+]

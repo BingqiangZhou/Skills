@@ -20,6 +20,10 @@ CATEGORY_ORDER = ["安全", "开发", "其他", "用户提交"]
 # The audience of these reports is Chinese readers; display times in CST.
 CST = timezone(timedelta(hours=8))
 
+# Named limits instead of inline magic numbers.
+FALLBACK_SUMMARY_CHARS = 200      # max chars of description shown when no AI summary
+SECURITY_SUBGROUP_THRESHOLD = 8   # split the 安全 category into sub-groups above this count
+
 # Security (安全) is by far the largest category (~326 feeds). To keep the
 # report readable we further split it into sub-groups by keyword. Order matters:
 # the first matching sub-group wins, so put the most specific terms first.
@@ -114,7 +118,7 @@ def render_article(update, article_index, summary_map, lines):
         lines.append("")
     elif summary_text:
         # Show first 200 chars of description as fallback
-        fallback = summary_text[:200] + ("..." if len(summary_text) > 200 else "")
+        fallback = summary_text[:FALLBACK_SUMMARY_CHARS] + ("..." if len(summary_text) > FALLBACK_SUMMARY_CHARS else "")
         lines.append(f"**Summary**: {fallback}")
         lines.append("")
 
@@ -156,7 +160,7 @@ def generate_report(updates_data, summary_map):
         lines.append("---")
         lines.append("")
 
-        if cat == "安全" and len(cat_updates) > 8:
+        if cat == "安全" and len(cat_updates) > SECURITY_SUBGROUP_THRESHOLD:
             # Sub-group the large security category for readability.
             sub_buckets = OrderedDict((label, []) for label, _ in SECURITY_SUBGROUPS)
             for update in cat_updates:

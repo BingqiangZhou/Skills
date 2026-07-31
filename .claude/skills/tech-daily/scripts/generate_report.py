@@ -9,12 +9,15 @@ import argparse
 import json
 import sys
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 
 # Category display order
 CATEGORY_ORDER = ["AI/ML", "芯片硬件", "云计算", "开源", "网络安全", "综合科技"]
+
+# The audience of these reports is Chinese readers; display times in CST.
+CST = timezone(timedelta(hours=8))
 
 
 def load_json(path):
@@ -86,7 +89,7 @@ def generate_report(updates_data, summary_map, trend_insight):
     meta = updates_data.get("metadata", {})
     updates = updates_data.get("updates", [])
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(CST)
     report_date = now.strftime("%Y-%m-%d")
     report_time = now.strftime("%Y-%m-%d %H:%M")
 
@@ -195,7 +198,7 @@ def generate_report(updates_data, summary_map, trend_insight):
             lines.append("")
 
     # Footer
-    lines.append(f"*报告生成时间: {report_time} UTC*")
+    lines.append(f"*报告生成时间: {report_time} CST (UTC+8)*")
 
     return "\n".join(lines)
 
@@ -217,11 +220,11 @@ def main():
     update_count = updates_data.get("metadata", {}).get("update_count", 0)
     if update_count == 0:
         print("No updates found. Nothing to report.")
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        now = datetime.now(CST).strftime("%Y-%m-%d %H:%M")
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write(f"# AI 科技日报 - {now}\n\n")
+            f.write(f"# AI 科技日报 - {now} (CST)\n\n")
             f.write(f"> 未在检查的时间窗口内发现新文章。\n")
         return
 

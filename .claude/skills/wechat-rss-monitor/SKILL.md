@@ -42,7 +42,7 @@ Development (开发), Other (其他), and User Submitted (用户提交).
                             # which is the source of truth for cache freshness.
 
 {project_root}/
-  wechat-workspace/         # Runtime intermediate files
+  workspaces/wechat/         # Runtime intermediate files
     .http_cache.json
     latest_updates.json
     wechat_batch_N.json     # Batches for AI summarization
@@ -61,7 +61,7 @@ with the project root (`E:/Projects/AI/OpenClaw_Skills`).
 ### Step 0: Ensure workspace directories exist
 
 ```bash
-mkdir -p "{project_root}/wechat-workspace"
+mkdir -p "{project_root}/workspaces/wechat"
 mkdir -p "{project_root}/daily-digests/$(date +%Y-%m-%d)"
 ```
 
@@ -86,8 +86,8 @@ Options:
 ```bash
 cd "{skill_directory}" && python scripts/check_updates.py \
   --hours 24 --workers 10 \
-  --output "{project_root}/wechat-workspace/latest_updates.json" \
-  --cache "{project_root}/wechat-workspace/.http_cache.json"
+  --output "{project_root}/workspaces/wechat/latest_updates.json" \
+  --cache "{project_root}/workspaces/wechat/.http_cache.json"
 ```
 
 Options:
@@ -115,8 +115,8 @@ Rarely needed — the RSS `content:encoded` from wechat2rss is usually comprehen
 
 ```bash
 cd "{skill_directory}" && python scripts/fetch_articles.py \
-  -i "{project_root}/wechat-workspace/latest_updates.json" \
-  -o "{project_root}/wechat-workspace/latest_updates.json" \
+  -i "{project_root}/workspaces/wechat/latest_updates.json" \
+  -o "{project_root}/workspaces/wechat/latest_updates.json" \
   --delay 2.0
 ```
 
@@ -153,7 +153,7 @@ small. Run from the project root:
 cd "{project_root}"
 python -c "
 import json
-with open('wechat-workspace/latest_updates.json','r',encoding='utf-8') as f:
+with open('workspaces/wechat/latest_updates.json','r',encoding='utf-8') as f:
     data=json.load(f)
 updates=data['updates']
 for i in range(0,len(updates),10):
@@ -161,7 +161,7 @@ for i in range(0,len(updates),10):
             'article_url':u['article_url'],
             'full_text':u.get('full_text','')[:1500]} for u in updates[i:i+10]]
     n=i//10
-    with open(f'wechat-workspace/wechat_batch_{n}.json','w',encoding='utf-8') as f:
+    with open(f'workspaces/wechat/wechat_batch_{n}.json','w',encoding='utf-8') as f:
         json.dump(batch,f,ensure_ascii=False)
 print(f'Saved {(len(updates)+9)//10} batches')
 "
@@ -180,14 +180,14 @@ launch the next.
 ```
 Task: Summarize WeChat articles into one Chinese sentence each.
 
-Read the file {project_root}/wechat-workspace/wechat_batch_{N}.json.
+Read the file {project_root}/workspaces/wechat/wechat_batch_{N}.json.
 
 For each article, use the `full_text` field to write ONE concise Chinese
 sentence (under 100 characters) capturing the key point or takeaway, so the
 reader can decide whether to read the full article.
 
 Write the results as JSON to:
-{project_root}/wechat-workspace/ai_summaries_batch_{N}.json
+{project_root}/workspaces/wechat/ai_summaries_batch_{N}.json
 
 Use this exact structure:
 {
@@ -220,8 +220,8 @@ files with a warning (instead of crashing) and de-duplicates by article_url:
 
 ```bash
 cd "{skill_directory}" && python scripts/merge_summaries.py \
-  --batch-dir "{project_root}/wechat-workspace" \
-  -o "{project_root}/wechat-workspace/ai_summaries.json"
+  --batch-dir "{project_root}/workspaces/wechat" \
+  -o "{project_root}/workspaces/wechat/ai_summaries.json"
 ```
 
 If no batch files were produced (all sub-agents failed) it exits cleanly
@@ -235,8 +235,8 @@ entirely. The report generator uses the raw description text as fallback.
 
 ```bash
 cd "{skill_directory}" && python scripts/generate_report.py \
-  -i "{project_root}/wechat-workspace/latest_updates.json" \
-  -s "{project_root}/wechat-workspace/ai_summaries.json" \
+  -i "{project_root}/workspaces/wechat/latest_updates.json" \
+  -s "{project_root}/workspaces/wechat/ai_summaries.json" \
   -o "{project_root}/daily-digests/YYYY-MM-DD/wechat_HH-MM.md"
 ```
 

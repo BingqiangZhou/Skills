@@ -39,7 +39,7 @@ cybersecurity, and general tech. Output is a Chinese-language Markdown report.
     feeds.json              # Curated feed list (~25 RSS + 2 HN feeds)
 
 {project_root}/
-  tech-daily-workspace/     # Runtime intermediate files
+  workspaces/tech-daily/     # Runtime intermediate files
     .http_cache.json
     latest_updates.json
     tech_daily_batch_N.json      # Batches for AI summarization
@@ -59,7 +59,7 @@ with the project root (`E:/Projects/AI/OpenClaw_Skills`).
 ### Step 0: Ensure workspace directories exist
 
 ```bash
-mkdir -p "{project_root}/tech-daily-workspace"
+mkdir -p "{project_root}/workspaces/tech-daily"
 mkdir -p "{project_root}/daily-digests/$(date +%Y-%m-%d)"
 ```
 
@@ -68,8 +68,8 @@ mkdir -p "{project_root}/daily-digests/$(date +%Y-%m-%d)"
 ```bash
 cd "{skill_directory}" && python scripts/check_updates.py \
   --hours 24 --workers 20 \
-  --output "{project_root}/tech-daily-workspace/latest_updates.json" \
-  --cache "{project_root}/tech-daily-workspace/.http_cache.json"
+  --output "{project_root}/workspaces/tech-daily/latest_updates.json" \
+  --cache "{project_root}/workspaces/tech-daily/.http_cache.json"
 ```
 
 Options:
@@ -88,14 +88,14 @@ sub-agents concurrently using the Agent tool.
 
 For each batch:
 
-1. Write a batch file to `tech-daily-workspace/tech_daily_batch_N.json`
+1. Write a batch file to `workspaces/tech-daily/tech_daily_batch_N.json`
    containing the batch's updates array from `latest_updates.json`.
 
 2. Launch a sub-agent with this prompt:
 
 ```
 You are summarizing tech news articles for a Chinese-language daily digest.
-Read the file {project_root}/tech-daily-workspace/tech_daily_batch_{N}.json
+Read the file {project_root}/workspaces/tech-daily/tech_daily_batch_{N}.json
 
 For each article, use the `full_text` field (or `description` as fallback)
 to write a ONE-SENTENCE Chinese summary (under 100 characters) that captures
@@ -106,7 +106,7 @@ Also, if the article's `source_category` doesn't seem accurate based on the
 content, suggest a better category from: AI/ML, 芯片硬件, 云计算, 开源,
 网络安全, 综合科技. Otherwise keep the original category.
 
-Output a JSON file at {project_root}/tech-daily-workspace/ai_summaries_batch_{N}.json
+Output a JSON file at {project_root}/workspaces/tech-daily/ai_summaries_batch_{N}.json
 with this exact structure:
 {
   "summaries": [
@@ -127,7 +127,7 @@ CRITICAL - Encoding rules to avoid broken JSON:
 ```
 
 3. After all sub-agents complete, manually merge the batch summary files
-   into a single `tech-daily-workspace/ai_summaries.json`:
+   into a single `workspaces/tech-daily/ai_summaries.json`:
    - Read each `ai_summaries_batch_N.json` file
    - Combine all `summaries` arrays into one list
    - Write the merged result using Python json.dump() (same encoding rules)
@@ -141,7 +141,7 @@ Launch one sub-agent to analyze all summaries and generate trend insights:
 
 ```
 You are analyzing tech news trends for a Chinese-language daily digest.
-Read the file {project_root}/tech-daily-workspace/ai_summaries.json
+Read the file {project_root}/workspaces/tech-daily/ai_summaries.json
 
 Analyze all the AI summaries and identify 3-5 key tech trends, patterns,
 or themes from today's news. Write 3-5 sentences in Chinese that capture
@@ -153,7 +153,7 @@ Focus on:
 - Cross-domain connections (e.g., how AI relates to security or cloud)
 - Industry shifts or notable developments
 
-Output a JSON file at {project_root}/tech-daily-workspace/trend_insight.json
+Output a JSON file at {project_root}/workspaces/tech-daily/trend_insight.json
 with this exact structure:
 {
   "trend_insight": "1. [trend 1] 2. [trend 2] 3. [trend 3] ..."
@@ -168,9 +168,9 @@ CRITICAL - Encoding rules:
 
 ```bash
 cd "{skill_directory}" && python scripts/generate_report.py \
-  -i "{project_root}/tech-daily-workspace/latest_updates.json" \
-  -s "{project_root}/tech-daily-workspace/ai_summaries.json" \
-  --insight "{project_root}/tech-daily-workspace/trend_insight.json" \
+  -i "{project_root}/workspaces/tech-daily/latest_updates.json" \
+  -s "{project_root}/workspaces/tech-daily/ai_summaries.json" \
+  --insight "{project_root}/workspaces/tech-daily/trend_insight.json" \
   -o "{project_root}/daily-digests/YYYY-MM-DD/tech-daily_HH-MM.md"
 ```
 

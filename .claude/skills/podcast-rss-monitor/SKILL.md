@@ -31,7 +31,7 @@ project_root/
 ├── daily-digests/                    # Unified output directory for all digest reports
 │   └── YYYY-MM-DD/                   # Daily subdirectory
 │       └── podcast_HH-MM.md          # Podcast digest report
-├── podcast-workspace/            # Intermediate files (gitignored). Stale batch files are cleaned at the start of each run (Step 1).
+├── workspaces/podcast/            # Intermediate files (gitignored). Stale batch files are cleaned at the start of each run (Step 1).
 │   ├── latest_updates.json       # Step 1 output
 │   ├── .http_cache.json          # HTTP ETag/If-Modified-Since cache
 │   ├── podcast_batch_N.json      # Batch input for sub-agents
@@ -50,7 +50,7 @@ project_root/
         └── podcasts.json         # 1000 podcast source data
 ```
 
-All intermediate files go into `{project_root}/podcast-workspace/`. This keeps the skill directory clean and separates temporary data from the skill definition.
+All intermediate files go into `{project_root}/workspaces/podcast/`. This keeps the skill directory clean and separates temporary data from the skill definition.
 
 ---
 
@@ -59,14 +59,14 @@ All intermediate files go into `{project_root}/podcast-workspace/`. This keeps t
 ### Step 1: Run Python Script to Check Updates
 
 ```bash
-mkdir -p "{project_root}/podcast-workspace"
+mkdir -p "{project_root}/workspaces/podcast"
 mkdir -p "{project_root}/daily-digests/$(date +%Y-%m-%d)"
 # Clean stale batch files from previous runs (clean restart)
-rm -f "{project_root}/podcast-workspace"/podcast_batch_*.json "{project_root}/podcast-workspace"/ai_summaries_batch_*.json
+rm -f "{project_root}/workspaces/podcast"/podcast_batch_*.json "{project_root}/workspaces/podcast"/ai_summaries_batch_*.json
 cd "{skill_directory}" && python scripts/check_updates.py \
   --count 1000 --hours 24 --workers 30 \
-  --output "{project_root}/podcast-workspace/latest_updates.json" \
-  --cache "{project_root}/podcast-workspace/.http_cache.json"
+  --output "{project_root}/workspaces/podcast/latest_updates.json" \
+  --cache "{project_root}/workspaces/podcast/.http_cache.json"
 ```
 
 If `python` is not found, try `python3` or `uv run python`.
@@ -117,7 +117,7 @@ Resolve non-Xiaoyuzhou episode URLs to Xiaoyuzhou episode-level links (`xiaoyuzh
 
 ```bash
 cd "{skill_directory}" && python scripts/resolve_xiaoyuzhou_urls.py \
-  --input "{project_root}/podcast-workspace/latest_updates.json"
+  --input "{project_root}/workspaces/podcast/latest_updates.json"
 ```
 
 This step:
@@ -144,10 +144,10 @@ Divide updates into **batches of 10**, create one sub-agent per batch.
 cd "{project_root}"
 python -c "
 import json
-with open('podcast-workspace/latest_updates.json','r',encoding='utf-8') as f: data=json.load(f)
+with open('workspaces/podcast/latest_updates.json','r',encoding='utf-8') as f: data=json.load(f)
 for i in range(0,len(data['updates']),10):
     batch=[{'podcast_name':u['podcast_name'],'episode_title':u['episode_title'],'episode_url':u['episode_url'],'shownotes':u.get('shownotes','')[:800]} for u in data['updates'][i:i+10]]
-    with open(f'podcast-workspace/podcast_batch_{i//10}.json','w',encoding='utf-8') as f: json.dump(batch,f,ensure_ascii=False)
+    with open(f'workspaces/podcast/podcast_batch_{i//10}.json','w',encoding='utf-8') as f: json.dump(batch,f,ensure_ascii=False)
 print(f'Saved {(len(data[\"updates\"])+9)//10} batches')
 "
 ```
@@ -168,13 +168,13 @@ Launch each group in a single message (up to 4 Agent tool calls), wait for all a
 ```
 Task: Summarize podcast shownotes into one sentence
 
-Read {project_root}/podcast-workspace/podcast_batch_{N}.json and summarize each podcast episode's shownotes into ONE concise Chinese sentence (30-50 characters).
+Read {project_root}/workspaces/podcast/podcast_batch_{N}.json and summarize each podcast episode's shownotes into ONE concise Chinese sentence (30-50 characters).
 
 Summary format:
 本期节目[讨论了/讲述了/分享了][主题]，[主要内容]。
 
 After summarizing all episodes, write the results as JSON to:
-{project_root}/podcast-workspace/ai_summaries_batch_{N}.json
+{project_root}/workspaces/podcast/ai_summaries_batch_{N}.json
 
 Use this exact format (key = episode_url, value = summary):
 {
@@ -210,9 +210,9 @@ cd "{project_root}"
 python -c "
 import json, glob
 merged = {}
-for f in sorted(glob.glob('podcast-workspace/ai_summaries_batch_*.json')):
+for f in sorted(glob.glob('workspaces/podcast/ai_summaries_batch_*.json')):
     with open(f,'r',encoding='utf-8') as fh: merged.update(json.load(fh))
-with open('podcast-workspace/ai_summaries.json','w',encoding='utf-8') as fh: json.dump(merged,fh,ensure_ascii=False,indent=2)
+with open('workspaces/podcast/ai_summaries.json','w',encoding='utf-8') as fh: json.dump(merged,fh,ensure_ascii=False,indent=2)
 print(f'Merged {len(merged)} summaries')
 "
 ```
@@ -221,7 +221,7 @@ print(f'Merged {len(merged)} summaries')
 
 ```bash
 cd "{skill_directory}" && python scripts/generate_report.py \
-  -i "{project_root}/podcast-workspace/latest_updates.json" \
+  -i "{project_root}/workspaces/podcast/latest_updates.json" \
   -o "{project_root}/daily-digests/YYYY-MM-DD/podcast_HH-MM.md"
 ```
 
@@ -231,8 +231,8 @@ cd "{skill_directory}" && python scripts/generate_report.py \
 
 ```bash
 cd "{skill_directory}" && python scripts/generate_report.py \
-  -i "{project_root}/podcast-workspace/latest_updates.json" \
-  -s "{project_root}/podcast-workspace/ai_summaries.json" \
+  -i "{project_root}/workspaces/podcast/latest_updates.json" \
+  -s "{project_root}/workspaces/podcast/ai_summaries.json" \
   -o "{project_root}/daily-digests/YYYY-MM-DD/podcast_HH-MM.md"
 ```
 
@@ -255,19 +255,19 @@ Main Agent
           |- HTML-to-plaintext conversion for shownotes
           |- HTTP cache (ETag/If-Modified-Since) for incremental updates
           |- Error statistics with classification
-          |- Output: podcast-workspace/latest_updates.json
+          |- Output: workspaces/podcast/latest_updates.json
   |
   Step 1.5: python resolve_xiaoyuzhou_urls.py
           |- Resolves non-XYZ URLs to XYZ episode links
           |- Title matching (exact → substring)
           |- Cleans utm_source suffixes
-          |- Updates: podcast-workspace/latest_updates.json (in-place)
+          |- Updates: workspaces/podcast/latest_updates.json (in-place)
   |
   Step 2: Prepare batches -> N parallel sub-agents (max 4 concurrent)
-          |- Each sub-agent reads podcast-workspace/podcast_batch_N.json
-          |- Each sub-agent writes to podcast-workspace/ai_summaries_batch_N.json
+          |- Each sub-agent reads workspaces/podcast/podcast_batch_N.json
+          |- Each sub-agent writes to workspaces/podcast/ai_summaries_batch_N.json
           |- Process in groups of 4 to avoid rate limiting
-          |- Merge all results -> podcast-workspace/ai_summaries.json
+          |- Merge all results -> workspaces/podcast/ai_summaries.json
           |- Fallback: skip to Step 3 (truncation-based summaries)
   |
   Step 3: python generate_report.py
