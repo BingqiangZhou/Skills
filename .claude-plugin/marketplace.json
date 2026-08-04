@@ -10,6 +10,13 @@
       "description": "中文内容更新监控与每日摘要生成 — RSS（微信公众号 / 科技博客 / 播客）、GitHub 动态（PR / issue）、开发工具版本更新三大监控 skill 合集，AI 生成统一 Markdown 日报。",
       "category": "productivity",
       "keywords": ["rss", "digest", "monitor", "wechat", "podcast", "github", "chinese", "日报"]
+    },
+    {
+      "name": "agent-journal",
+      "source": "./plugins/agent-journal",
+      "description": "Agent 每日自我回顾 skill —— agent 自主重建今日所做（git / 文件 / 对话 / 问用户），用中文写回顾，并以中英双语诗意收尾。无采集脚本，适用于 OpenClaw / Hermes 等 agent 的定时自省。",
+      "category": "productivity",
+      "keywords": ["journal", "reflection", "agent", "daily", "回顾", "诗意", "bilingual"]
     }
   ]
 }

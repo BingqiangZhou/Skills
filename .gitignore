@@ -18,6 +18,10 @@ __pycache__/
 daily-digests/*
 !daily-digests/.gitkeep
 
+# Agent daily journals: keep only the directory tracked
+journals/*
+!journals/.gitkeep
+
 # Script-generated data snapshots (regenerated on first run, not hand-curated):
 #   feeds_wechat.json — fetched weekly by rss-monitor/scripts/fetch_feed_list.py
 #   podcasts.json     — scraped from xyzrank.com by resolve_xiaoyuzhou_urls.py

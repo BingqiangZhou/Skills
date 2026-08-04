@@ -1,0 +1,12 @@
+{
+  "name": "agent-journal",
+  "description": "Agent 每日自我回顾 skill —— agent 自主重建今日所做（git / 文件 / 对话 / 问用户），用中文写回顾，并以一段中英双语的诗意收尾。无采集脚本。",
+  "version": "1.0.0",
+  "author": {
+    "name": "Bingqiang Zhou"
+  },
+  "homepage": "https://github.com/BingqiangZhou/Skills",
+  "license": "MIT",
+  "keywords": ["journal", "reflection", "agent", "daily", "回顾", "自省", "诗意", "bilingual", "openclaw", "hermes"],
+  "category": "productivity"
+}
