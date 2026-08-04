@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.3.2 (2026-08-04)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.1...v1.3.2)**
+> 修复 daily-digest 报告在播客主编步骤失败或产出为空时**静默丢失整个「🎧 播客精选」章节**的问题:报告生成器现在会渲染明确的章节占位与 ⚠️ 警告并打印 stderr,绝不静默丢弃;同时把脆弱的内联 heredoc 拆分/合并逻辑提炼为两个独立 CLI 脚本(`split_rss_summaries.py` / `merge_narratives.py`),后者采用非破坏性按字段合并以消除 `dict.update` 覆盖风险。
+>
+> 共 1 commit,其中 🐛 Fixes 1
+>
+> **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.1...v1.3.2)**
+
+### 🐛 Bug Fixes
+
+- **daily-digest**: 报告不再静默丢失播客章节([f454377](https://github.com/BingqiangZhou/Skills/commit/f4543772662953898c3dd79f7dba05bbd87f3d18))
 ## v1.3.1 (2026-08-04)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.0...v1.3.1)**
 > 把 `workspaces/daily-digests/` 内的产物按用途分层:报告输出收进 `reports/`、采集中间件(rss / github-monitor / tool-update-monitor / daily-digest)收进 `data/`,两者对称;同时修复上轮重构引入的 `daily-digests/daily-digests` 双层路径误伤。
