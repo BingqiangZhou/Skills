@@ -1,6 +1,6 @@
 ---
 name: tool-update-monitor
-version: "1.0.4"
+version: "1.0.5"
 description: |
   Collect and save new releases of developer tools and operating systems to
   latest_updates.json. This is the COLLECTION layer only: it detects new
@@ -63,7 +63,7 @@ Microsoft's release-health page. Add/remove tools in
     tools.json              # Curated tool list (edit to add/remove tools)
 
 {project_root}/                    # The user's current project (cwd at run time)
-  workspaces/daily-digests/tool-update-monitor/   # Runtime intermediate files (gitignored)
+  workspaces/daily-digests/data/tool-update-monitor/   # Runtime intermediate files (gitignored)
     .http_cache.json               # ETag/If-Modified-Since per source URL
     .last_seen.json                # { tool_id: { version, published_at, checked_at } }
     latest_updates.json            # ← THIS skill's output (input to daily-digest)
@@ -99,7 +99,7 @@ project (the working directory at run time).
 ### Step 0: Ensure workspace directories exist
 
 ```bash
-mkdir -p "{project_root}/workspaces/daily-digests/tool-update-monitor"
+mkdir -p "{project_root}/workspaces/daily-digests/data/tool-update-monitor"
 ```
 
 ### Step 1: Check all tools for new releases
@@ -107,9 +107,9 @@ mkdir -p "{project_root}/workspaces/daily-digests/tool-update-monitor"
 ```bash
 cd "{skill_directory}" && python scripts/check_updates.py \
   --hours 168 --workers 6 \
-  --output "{project_root}/workspaces/daily-digests/tool-update-monitor/latest_updates.json" \
-  --cache "{project_root}/workspaces/daily-digests/tool-update-monitor/.http_cache.json" \
-  --state "{project_root}/workspaces/daily-digests/tool-update-monitor/.last_seen.json"
+  --output "{project_root}/workspaces/daily-digests/data/tool-update-monitor/latest_updates.json" \
+  --cache "{project_root}/workspaces/daily-digests/data/tool-update-monitor/.http_cache.json" \
+  --state "{project_root}/workspaces/daily-digests/data/tool-update-monitor/.last_seen.json"
 ```
 
 After the script finishes, read the output JSON and check `metadata`:
@@ -160,7 +160,7 @@ After collection, inform the user:
   a normal run, and how many new releases were found.
 - Which tools/categories had updates (with counts), or "no new versions since
   last check".
-- The output path: `workspaces/daily-digests/tool-update-monitor/latest_updates.json`
+- The output path: `workspaces/daily-digests/data/tool-update-monitor/latest_updates.json`
 - To generate a unified AI-summarized daily digest, run the **daily-digest**
   skill — it consumes this file (plus the RSS and GitHub data) and produces
   `workspaces/daily-digests/reports/YYYY-MM-DD/daily-digest_HH-MM.md`.

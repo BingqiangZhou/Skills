@@ -27,8 +27,8 @@ Token: optional. Set GITHUB_ACCESS_TOKEN to raise the rate limit from
 
 Usage:
     python check_updates.py --hours 24 \\
-        --output {project_root}/workspaces/daily-digests/github-monitor/latest_updates.json \\
-        --cache  {project_root}/workspaces/daily-digests/github-monitor/.http_cache.json
+        --output {project_root}/workspaces/daily-digests/data/github-monitor/latest_updates.json \\
+        --cache  {project_root}/workspaces/daily-digests/data/github-monitor/.http_cache.json
 
     # Override the repo list ad hoc (single repo, monitor both pulls+issues,
     # no filter):

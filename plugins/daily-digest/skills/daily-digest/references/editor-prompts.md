@@ -12,7 +12,7 @@ tracks — they never cross-reference each other.
 ## 2d-0. Split RSS summaries into articles / podcasts
 
 The merged `rss_ai_summaries.json` mixes all three RSS sources. Split it by
-`source` (looked up from `workspaces/daily-digests/daily-digests/rss/latest_updates.json`) so each editor
+`source` (looked up from `workspaces/daily-digests/data/rss/latest_updates.json`) so each editor
 sub-agent gets only its track:
 
 ```bash
@@ -20,7 +20,7 @@ python - <<'PY'
 import json
 from pathlib import Path
 
-base = Path("{project_root}/workspaces/daily-digests/daily-digests")
+base = Path("{project_root}/workspaces/daily-digests/data")
 lu = json.load(open(base / "rss/latest_updates.json", encoding="utf-8"))
 url2src = {u.get("url", "").strip(): u.get("source", "")
            for u in lu.get("updates", [])}
@@ -55,7 +55,7 @@ Task: Act as the editor of today's ARTICLE digest (WeChat + tech blogs only;
 NO podcasts). Read the merged one-line summaries and produce a NARRATIVE report.
 
 Read this file:
-- {project_root}/workspaces/daily-digests/daily-digest/rss_articles_summaries.json
+- {project_root}/workspaces/daily-digests/data/daily-digest/rss_articles_summaries.json
 
 Each entry is a one-line Chinese summary of an article. Your job:
 
@@ -84,7 +84,7 @@ Each entry is a one-line Chinese summary of an article. Your job:
    (url + short label). This is for audit only — it is NOT rendered.
 
 Write the results as JSON to:
-{project_root}/workspaces/daily-digests/daily-digest/digest_narrative_articles.json
+{project_root}/workspaces/daily-digests/data/daily-digest/digest_narrative_articles.json
 
 Use this exact structure:
 {
@@ -124,7 +124,7 @@ Task: Act as the editor of today's PODCAST digest (podcasts only; NO articles).
 Read the one-line summaries and produce a NARRATIVE report.
 
 Read this file:
-- {project_root}/workspaces/daily-digests/daily-digest/rss_podcasts_summaries.json
+- {project_root}/workspaces/daily-digests/data/daily-digest/rss_podcasts_summaries.json
 
 Each entry is a one-line Chinese summary of a podcast episode. Your job:
 
@@ -143,7 +143,7 @@ Each entry is a one-line Chinese summary of a podcast episode. Your job:
    (url + short label). This is for audit only — it is NOT rendered.
 
 Write the results as JSON to:
-{project_root}/workspaces/daily-digests/daily-digest/digest_narrative_podcasts.json
+{project_root}/workspaces/daily-digests/data/daily-digest/digest_narrative_podcasts.json
 
 Use this exact structure:
 {
@@ -179,7 +179,7 @@ avoid any write race. The main flow then merges them into the single
 python - <<'PY'
 import json
 from pathlib import Path
-base = Path("{project_root}/workspaces/daily-digests/daily-digest")
+base = Path("{project_root}/workspaces/daily-digests/data/daily-digest")
 merged = {"overview": "", "article_topics": [], "podcast_topics": [], "other": ""}
 for name in ("digest_narrative_articles.json", "digest_narrative_podcasts.json"):
     p = base / name

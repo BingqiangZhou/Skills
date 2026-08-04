@@ -16,14 +16,14 @@ Run after `prepare_batches.py --source rss`. One sub-agent per `rss_batch_{N}.js
 ```
 Task: Summarize RSS articles into one Chinese sentence each.
 
-Read the file {project_root}/workspaces/daily-digests/daily-digest/{batch_file}.
+Read the file {project_root}/workspaces/daily-digests/data/daily-digest/{batch_file}.
 
 For each item, use the `full_text` field to write ONE concise Chinese
 sentence (under 100 characters) capturing the key point or takeaway, so the
 reader can decide whether to read the full article.
 
 Write the results as JSON to:
-{project_root}/workspaces/daily-digests/daily-digest/rss_ai_summaries_batch_{N}.json
+{project_root}/workspaces/daily-digests/data/daily-digest/rss_ai_summaries_batch_{N}.json
 
 Use this exact structure:
 {
@@ -56,7 +56,7 @@ Run after `prepare_batches.py --source github`. One sub-agent per `github_batch_
 Task: Summarize GitHub activity (merged pull requests and/or new issues) into
 one Chinese sentence each.
 
-Read the file {project_root}/workspaces/daily-digests/daily-digest/github_batch_{N}.json.
+Read the file {project_root}/workspaces/daily-digests/data/daily-digest/github_batch_{N}.json.
 
 Each entry is either a newly merged GitHub pull request (item_type="pulls") or a
 new GitHub issue (item_type="issues"). For each entry, use the `title` and
@@ -67,7 +67,7 @@ capturing the key point or purpose:
 The goal is that the reader can decide whether to look into it.
 
 Write the results as JSON to:
-{project_root}/workspaces/daily-digests/daily-digest/github_ai_summaries_batch_{N}.json
+{project_root}/workspaces/daily-digests/data/daily-digest/github_ai_summaries_batch_{N}.json
 
 Use this exact structure:
 {
@@ -104,7 +104,7 @@ human-readable, so there is no per-release summarization — just one overview p
 Task: Read tool release updates and write a brief Chinese-language highlights
 note.
 
-Read the file {project_root}/workspaces/daily-digests/tool-update-monitor/latest_updates.json.
+Read the file {project_root}/workspaces/daily-digests/data/tool-update-monitor/latest_updates.json.
 
 Look at the `updates` array. Each entry has a tool name, version,
 previous_version, published_at, and a `body` (release notes). Write:
@@ -115,7 +115,7 @@ previous_version, published_at, and a `body` (release notes). Write:
    summarizing that tool's update.
 
 Write the results as JSON to:
-{project_root}/workspaces/daily-digests/daily-digest/tool_ai_highlights.json
+{project_root}/workspaces/daily-digests/data/daily-digest/tool_ai_highlights.json
 
 Use this exact structure:
 {

@@ -16,8 +16,8 @@ skipped with a warning instead of aborting the merge.
 
 Usage:
     python merge_summaries.py \\
-        --batch-dir {project_root}/workspaces/daily-digests/github-monitor \\
-        --output   {project_root}/workspaces/daily-digests/github-monitor/ai_summaries.json
+        --batch-dir {project_root}/workspaces/daily-digests/data/github-monitor \\
+        --output   {project_root}/workspaces/daily-digests/data/github-monitor/ai_summaries.json
 
 Options:
     --pattern   glob pattern for batch files

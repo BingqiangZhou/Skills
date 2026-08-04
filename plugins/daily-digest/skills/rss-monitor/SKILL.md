@@ -1,6 +1,6 @@
 ---
 name: rss-monitor
-version: "1.1.3"
+version: "1.1.4"
 description: |
   Collect and save updates from RSS information sources (WeChat Official
   Accounts, tech blogs, Chinese podcasts). This is the COLLECTION layer only:
@@ -53,7 +53,7 @@ Three sources are supported:
     podcasts.json                  # Podcast list (~1000, from xyzrank.com)
 
 {project_root}/                    # The user's current project (cwd at run time)
-  workspaces/daily-digests/rss/                  # Runtime intermediate files
+  workspaces/daily-digests/data/rss/                  # Runtime intermediate files
     .http_cache.json
     latest_updates.json            # ← THIS skill's output (input to daily-digest)
 ```
@@ -71,7 +71,7 @@ project (the working directory at run time).
 ### Step 0: Ensure workspace directories exist
 
 ```bash
-mkdir -p "{project_root}/workspaces/daily-digests/rss"
+mkdir -p "{project_root}/workspaces/daily-digests/data/rss"
 ```
 
 ### Step 1: [WeChat] Refresh the feed list (only if stale)
@@ -91,8 +91,8 @@ Options: `--force` to force refresh regardless of cache age.
 ```bash
 cd "{skill_directory}" && python scripts/check_updates.py \
   --source all --hours 24 \
-  --output "{project_root}/workspaces/daily-digests/rss/latest_updates.json" \
-  --cache "{project_root}/workspaces/daily-digests/rss/.http_cache.json"
+  --output "{project_root}/workspaces/daily-digests/data/rss/latest_updates.json" \
+  --cache "{project_root}/workspaces/daily-digests/data/rss/.http_cache.json"
 ```
 
 Options:
@@ -125,7 +125,7 @@ Resolves non-Xiaoyuzhou podcast episode URLs to canonical
 
 ```bash
 cd "{skill_directory}" && python scripts/resolve_xiaoyuzhou_urls.py \
-  -i "{project_root}/workspaces/daily-digests/rss/latest_updates.json"
+  -i "{project_root}/workspaces/daily-digests/data/rss/latest_updates.json"
 ```
 
 (This overwrites the input file in place.)
@@ -138,8 +138,8 @@ JSON — if it is non-zero, run this step to fetch full article content.
 
 ```bash
 cd "{skill_directory}" && python scripts/fetch_articles.py \
-  -i "{project_root}/workspaces/daily-digests/rss/latest_updates.json" \
-  -o "{project_root}/workspaces/daily-digests/rss/latest_updates.json" \
+  -i "{project_root}/workspaces/daily-digests/data/rss/latest_updates.json" \
+  -o "{project_root}/workspaces/daily-digests/data/rss/latest_updates.json" \
   --delay 2.0
 ```
 
@@ -167,7 +167,7 @@ Options:
 
 After collection, inform the user:
 - How many items were found total, and per source (wechat/tech/podcast)
-- The output path: `workspaces/daily-digests/rss/latest_updates.json`
+- The output path: `workspaces/daily-digests/data/rss/latest_updates.json`
 - To generate a unified AI-summarized daily digest, run the **daily-digest**
   skill — it consumes this file (plus the GitHub and tool-update data) and
   produces `workspaces/daily-digests/reports/YYYY-MM-DD/daily-digest_HH-MM.md`.

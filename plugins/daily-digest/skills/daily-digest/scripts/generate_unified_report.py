@@ -25,7 +25,7 @@ Output shape:
     ## 🛠 工具更新                       ← compact list of releases
 
 The underlying structured data always stays in
-``workspaces/daily-digests/<source>/latest_updates.json`` for on-demand follow-up.
+``workspaces/daily-digests/data/<source>/latest_updates.json`` for on-demand follow-up.
 
 If no RSS narrative payload is available (editor step skipped/failed), the
 overview degrades to a best-effort string built from whatever highlights are

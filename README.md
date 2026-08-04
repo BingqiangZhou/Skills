@@ -87,11 +87,12 @@ plugins/
         references/  (tools.json)
 
 workspaces/                           # 运行时产物（gitignored，只保留 .gitkeep）
-  daily-digests/                      # 整条 daily-digest 管线：中间件 + 报告
-    daily-digest/                     # 日报层批次/摘要中间文件
-    rss/                              # RSS 采集产物 latest_updates.json
-    github-monitor/                   # GitHub 采集产物 latest_updates.json
-    tool-update-monitor/              # 工具采集产物 latest_updates.json
+  daily-digests/                      # 整条 daily-digest 管线：数据 + 报告
+    data/                             # 采集中间件 + 编排中间件
+      daily-digest/                   # 日报层批次/摘要中间文件
+      rss/                            # RSS 采集产物 latest_updates.json
+      github-monitor/                 # GitHub 采集产物 latest_updates.json
+      tool-update-monitor/            # 工具采集产物 latest_updates.json
     reports/                          # 统一日报输出
       YYYY-MM-DD/
         daily-digest_HH-MM.md         # ★ 统一日报（RSS + GitHub + 工具）
@@ -109,9 +110,9 @@ workspaces/                           # 运行时产物（gitignored，只保留
 ```
 daily-digest（日报层 · 编排）
   │
-  ├─ 触发采集 → rss-monitor/check_updates.py      → workspaces/daily-digests/rss/latest_updates.json
-  ├─ 触发采集 → github-monitor/check_updates.py   → workspaces/daily-digests/github-monitor/latest_updates.json
-  └─ 触发采集 → tool-update-monitor/check_updates.py → workspaces/daily-digests/tool-update-monitor/latest_updates.json
+  ├─ 触发采集 → rss-monitor/check_updates.py      → workspaces/daily-digests/data/rss/latest_updates.json
+  ├─ 触发采集 → github-monitor/check_updates.py   → workspaces/daily-digests/data/github-monitor/latest_updates.json
+  └─ 触发采集 → tool-update-monitor/check_updates.py → workspaces/daily-digests/data/tool-update-monitor/latest_updates.json
         │
         ▼
   AI 总结（daily-digest 编排 sub-agents + 复用兄弟 merge 脚本）
