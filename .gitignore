@@ -3,14 +3,26 @@
 workspaces/*
 !workspaces/.gitkeep
 .vscode/
-.zcode/
+# Ignore all of .zcode/ except the tracked release skill (shared via git).
+# Per git's rules, each level must be un-ignored to descend into it.
+.zcode/*
+!.zcode/skills/
+.zcode/skills/*
+!.zcode/skills/release/
 __pycache__/
 
-# Legacy digest directories (kept for reference)
-podcast-digests/
-wechat-digests/
-tech-daily-digests/
+# Runtime caches that may land inside plugin references/
+.feed_list_cache.json
 
 # Unified daily digests: only keep latest day tracked
 daily-digests/*
 !daily-digests/.gitkeep
+
+# Script-generated data snapshots (regenerated on first run, not hand-curated):
+#   feeds_wechat.json — fetched weekly by rss-monitor/scripts/fetch_feed_list.py
+#   podcasts.json     — scraped from xyzrank.com by resolve_xiaoyuzhou_urls.py
+plugins/daily-digest/skills/rss-monitor/references/feeds_wechat.json
+plugins/daily-digest/skills/rss-monitor/references/podcasts.json
+
+# Derived debug renderings (podcasts.json as Markdown — pure artifact)
+podcast_rss_list.md
