@@ -1,11 +1,14 @@
 ---
 name: github-monitor
+version: "1.0.1"
 description: |
-  Monitor GitHub repositories for new activity — newly merged pull requests and/or
-  new issues — and generate a daily digest report with AI-powered summaries. A
-  single unified monitor driven by references/repos.json: each repo declares
-  which activity types to watch (`monitor: ["pulls"]`, `["issues"]`, or both)
-  and may carry an optional per-repo issue filter.
+  Collect and save new GitHub repository activity — newly merged pull requests
+  and/or new issues — to latest_updates.json. This is the COLLECTION layer
+  only: a single unified monitor driven by references/repos.json. It does NOT
+  summarize or render a report — use the daily-digest skill for that.
+
+  Each repo declares which activity types to watch (`monitor: ["pulls"]`,
+  `["issues"]`, or both) and may carry an optional per-repo issue filter.
 
   Default config watches two repos:
   - `1c7/chinese-independent-developer` (中国独立开发者项目列表) for newly
@@ -15,32 +18,30 @@ description: |
     only community **open-source project self-recommendations**
     (【开源自荐】 / 【自荐】 / 【开源项目】…).
 
-  Use this skill whenever the user wants to check for or summarize GitHub
-  activity. This includes:
-  - Monitoring chinese-independent-developer / 独立开发者项目列表 / 1c7 仓库 for new
+  Use this skill whenever the user wants to CHECK or COLLECT raw GitHub
+  activity without a report. This includes:
+  - Checking chinese-independent-developer / 独立开发者项目列表 / 1c7 仓库 for new
     entries (新项目 / 新收录 / 最近合并的 PR)
-  - Monitoring 阮一峰周刊 / ruanyf weekly for new self-recommended open-source projects
+  - Checking 阮一峰周刊 / ruanyf weekly for new self-recommended open-source projects
   - Checking what pull requests were recently merged into a GitHub repo
   - Checking what new issues were opened on a GitHub repo
   - Any mention of GitHub combined with PR / pull request / 合并 / merged /
-    issue / 日报 / 监控 / 检查 / 最近 / 更新
-  - Questions like "1c7 仓库最近合并了哪些 PR", "独立开发者列表有什么新项目",
-    or "watch this repo's issues and summarize them"
+    issue / 检查 / 抓取 / 获取 / 最近 / 更新（不含"日报/摘要"）
 
-  Do NOT trigger for: monitoring GitHub *releases* / *tags* / *versions* (use
-  tool-update-monitor), RSS / podcast / WeChat updates, or general "open a PR" /
-  "create a PR" requests.
+  Do NOT trigger for: generating a digest/report/summary (use daily-digest),
+  monitoring GitHub *releases* / *tags* / *versions* (use tool-update-monitor),
+  RSS / podcast / WeChat updates, or general "open a PR" / "create a PR" requests.
 ---
 
-# GitHub Monitor Skill
+# GitHub Monitor Skill (Collection Layer)
 
-A unified monitor for GitHub repository activity across one or more repos.
+A unified collector for GitHub repository activity across one or more repos.
 For each repo in `references/repos.json`, it fetches newly merged pull requests
 and/or new issues within a time window (per the repo's `monitor` setting),
-optionally applies a per-repo issue filter, and generates an AI-summarized daily
-digest grouped by repo. PRs and issues appear together on one timeline, each
-rendered with the fields that matter for its type (PR: merge time / branch /
-diff stats; issue: creation time / labels).
+optionally applies a per-repo issue filter, and **saves** the result to
+`latest_updates.json`. This skill is **collection only** — it does not
+summarize or render a report. To turn the collected data into a unified
+AI-summarized daily digest, run the **daily-digest** skill.
 
 The default `repos.json` ships two entries:
 - `1c7/chinese-independent-developer` — watch **merged PRs** (new project listings).
@@ -56,21 +57,19 @@ The default `repos.json` ships two entries:
   scripts/
     _common.py              # GitHub HTTP helpers (ETag, rate-limit, auth)
     check_updates.py        # Fetch merged PRs + new issues, apply filters
-    merge_summaries.py      # Merge per-batch AI summaries into one file
-    generate_report.py      # Generate Markdown digest report
   references/
     repos.json              # Target repos + per-repo monitor/filter rules
 
 {project_root}/                # The user's current project (cwd at run time)
   workspaces/github-monitor/          # Runtime intermediate files (gitignored)
     .http_cache.json                  # GitHub API ETag cache
-    latest_updates.json
-    github-monitor_batch_N.json       # Batches for AI summarization
-    ai_summaries_batch_N.json
-    ai_summaries.json
-  daily-digests/YYYY-MM-DD/           # Unified output directory
-    github-monitor_HH-MM.md           # (times shown in CST / UTC+8)
+    latest_updates.json               # ← THIS skill's output (input to daily-digest)
 ```
+
+> NOTE: The legacy `merge_summaries.py` and `generate_report.py` scripts are
+> still present in this directory for backward compatibility, but this skill
+> no longer drives them. Summarization and report generation are handled by
+> the daily-digest skill, which reuses `merge_summaries.py`.
 
 ## Execution Steps
 
@@ -82,7 +81,6 @@ project (the working directory at run time).
 
 ```bash
 mkdir -p "{project_root}/workspaces/github-monitor"
-mkdir -p "{project_root}/daily-digests/$(date +%Y-%m-%d)"
 ```
 
 ### Step 1: Check for new activity (merged PRs + new issues)
@@ -119,138 +117,6 @@ checked/kept/filtered counts — a useful sanity check. Each `updates[]` entry
 carries a `type` field (`"pulls"` or `"issues"`); the console log reports the
 PR/issue split. `metadata.filtered_out_count` is the total dropped (by filters,
 the time window, unmerged PRs, or dedup).
-
-### Step 2: AI Summarization (parallel sub-agents)
-
-Divide updates into **batches of 10**, create one sub-agent per batch.
-
-**CRITICAL — avoid two common sub-agent failure modes:**
-1. **Oversized input**: an item `body_text` can be thousands of chars. A
-   10-item batch with full text easily exceeds 50KB and causes sub-agent
-   timeouts/context errors. Truncate `body_text` when preparing batches
-   (Step 2a does this — `check_updates.py` already caps body at 3000 chars,
-   and Step 2a further truncates to 1500 for summarization).
-2. **Broken output JSON**: sub-agents that write JSON via bash
-   `heredoc`/`echo`/`cat` produce malformed files (Chinese smart quotes,
-   encoding errors). The prompt below forces `json.dump()`; and
-   `merge_summaries.py` tolerates any corrupt batches instead of crashing.
-
-**Launch at most 4 sub-agents in parallel** (API rate limiting). Process
-batches group by group; do not launch more than 4 Agent tool calls in a
-single message.
-
-#### 2a. Prepare batch files (automated)
-
-This creates the batch files deterministically and truncates `body_text` to
-the first 1500 chars so each batch stays small. Each entry is type-aware
-(`item_type` = `"pulls"` or `"issues"`). Run from the project root:
-
-```bash
-cd "{project_root}"
-python -c "
-import json
-with open('workspaces/github-monitor/latest_updates.json','r',encoding='utf-8') as f:
-    data=json.load(f)
-updates=data['updates']
-for i in range(0,len(updates),10):
-    batch=[{'item_type':u.get('type',''),'item_number':u.get('item_number'),
-            'item_url':u.get('html_url'),'title':u['title'],
-            'author':u.get('author',''),'repo':u.get('repo',''),
-            'body_text':u.get('body_text','')[:1500]} for u in updates[i:i+10]]
-    n=i//10
-    with open(f'workspaces/github-monitor/github-monitor_batch_{n}.json','w',encoding='utf-8') as f:
-        json.dump(batch,f,ensure_ascii=False)
-print(f'Saved {(len(updates)+9)//10} batches')
-"
-```
-
-#### 2b. Launch sub-agents (groups of 4)
-
-Total batches = `ceil(update_count / 10)`. Divide into groups of 4. For
-example, 12 batches → groups [0-3], [4-7], [8-11]. Launch each group in one
-message (up to 4 Agent tool calls), wait for the group to finish, then
-launch the next.
-
-**Sub-Agent Prompt Template** (replace `{N}` with the batch index, and
-`{project_root}` with the real path):
-
-```
-Task: Summarize GitHub activity (merged pull requests and/or new issues) into
-one Chinese sentence each.
-
-Read the file {project_root}/workspaces/github-monitor/github-monitor_batch_{N}.json.
-
-Each entry is either a newly merged GitHub pull request (item_type="pulls") or a
-new GitHub issue (item_type="issues"). For each entry, use the `title` and
-`body_text` fields to write ONE concise Chinese sentence (under 100 characters)
-capturing the key point or purpose:
-- For a PR: what it changed or added (project name, what it does, notable detail).
-- For an issue: what the author is announcing or asking about.
-The goal is that the reader can decide whether to look into it.
-
-Write the results as JSON to:
-{project_root}/workspaces/github-monitor/ai_summaries_batch_{N}.json
-
-Use this exact structure:
-{
-  "summaries": [
-    {
-      "item_url": "the item_url from the input",
-      "item_number": 12345,
-      "item_type": "pulls",
-      "title": "...",
-      "ai_summary": "一句话中文摘要"
-    }
-  ]
-}
-
-CRITICAL - Encoding rules to avoid broken JSON:
-- You MUST write the file using Python json.dump(), NOT bash heredoc/echo/cat.
-- Do NOT use Chinese smart quotes (\u201c \u201d) in the ai_summary text —
-  use straight quotes (") or avoid quotes altogether.
-- Use ensure_ascii=False and encoding="utf-8" when writing.
-- Example:
-    import json
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-```
-
-#### 2c. Merge batch summaries
-
-After all sub-agents complete, merge the batch files into one
-`ai_summaries.json`. `merge_summaries.py` keys on `item_url` (falling back to
-legacy `pr_url`/`issue_url`), skips any missing/corrupt batch files with a
-warning (instead of crashing), and de-duplicates by URL:
-
-```bash
-cd "{skill_directory}" && python scripts/merge_summaries.py \
-  --batch-dir "{project_root}/workspaces/github-monitor" \
-  --pattern "ai_summaries_batch_*.json" \
-  -o "{project_root}/workspaces/github-monitor/ai_summaries.json"
-```
-
-If no batch files were produced (all sub-agents failed) it exits cleanly
-and writes nothing — Step 3 will simply fall back to the raw body text, so
-the pipeline never breaks.
-
-If sub-agents are not available at all (e.g., in Claude.ai), skip Step 2
-entirely. The report generator uses the raw body text as fallback.
-
-### Step 3: Generate the digest report
-
-```bash
-cd "{skill_directory}" && python scripts/generate_report.py \
-  -i "{project_root}/workspaces/github-monitor/latest_updates.json" \
-  -s "{project_root}/workspaces/github-monitor/ai_summaries.json" \
-  -o "{project_root}/daily-digests/YYYY-MM-DD/github-monitor_HH-MM.md"
-```
-
-Replace `YYYY-MM-DD` with today's date (CST) and `HH-MM` with current time.
-Report timestamps are shown in CST (UTC+8) for the Chinese-reading audience.
-
-Report grouping: items are grouped by repository (one section per repo when
-there are multiple), newest-first within each section, PRs and issues
-interleaved on the timeline.
 
 ## Configuring repos (references/repos.json)
 
@@ -310,8 +176,6 @@ For each repo, `check_updates.py` applies these rules per activity type:
 | Stage | Time |
 |-------|------|
 | Activity fetch (per repo, 1 page, ETag cached) | ~1-2s |
-| AI summarization (4 sub-agents) | ~60s |
-| Total end-to-end (2 default repos) | ~1-2 minutes |
 
 A 24-hour window typically yields a single API page (`per_page=100`) per repo;
 the script paginates automatically if a repo exceeds that. Many repos share
@@ -321,11 +185,13 @@ several. A 24h window on `1c7/chinese-independent-developer` typically yields
 
 ## Completion
 
-After generating the report, inform the user:
+After collection, inform the user:
 - How many items were found (total, broken down by PR vs issue, and per repo),
   and how many were filtered out
-- The path to the generated report file
-- A brief highlight: mention the 2–3 most interesting merged PRs / issues by title
+- The output path: `workspaces/github-monitor/latest_updates.json`
+- To generate a unified AI-summarized daily digest, run the **daily-digest**
+  skill — it consumes this file (plus the RSS and tool-update data) and
+  produces `daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md`.
 - Note whether a GitHub token was used (if `update_count` is suspiciously low
   and no token was set, the API rate limit may be the cause — suggest setting
-  `GITHUB_ACCESS_TOKEN`)
+  `GITHUB_ACCESS_TOKEN`).
