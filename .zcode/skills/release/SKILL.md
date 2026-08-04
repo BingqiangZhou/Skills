@@ -136,7 +136,20 @@ GitHub Release 由 `.github/workflows/release.yml` 自动创建，无需本地�
    git cliff --tag <VERSION> --prepend CHANGELOG.md
    ```
 
-4. **生成 AI 摘要**：git-cliff 模板中 `<!-- AI_SUMMARY -->` 是占位符，需要用 AI 生成的摘要替换。
+   > ⚠️ **切勿对已存在的 CHANGELOG.md 使用 `-o`（覆盖写入）！**
+   > `-o` 会用新版本内容**整文件覆盖**，丢失所有历史版本。必须用 `--prepend`
+   > 将新版本插入到文件头部，保留已有版本记录。
+
+4. **校验历史版本未丢失**（生成后必须执行）：
+   ```bash
+   # 统计 CHANGELOG 中的版本数，应等于 git tag 数
+   echo "CHANGELOG 版本数: $(grep -c '^## v' CHANGELOG.md)"
+   echo "Git tag 数:       $(git tag --list 'v*' | wc -l)"
+   ```
+   两个数字**必须相等**。若 CHANGELOG 版本数 < tag 数，说明历史被覆盖，
+   立即用 `git checkout CHANGELOG.md` 恢复后重试本步。
+
+5. **生成 AI 摘要**：git-cliff 模板中 `<!-- AI_SUMMARY -->` 是占位符，需要用 AI 生成的摘要替换。
 
    基于以下信息生成一段 2-3 句的自然语言摘要：
    - commits 总数和分组统计（从 Step 2 的 git-cliff 预览中提取）
@@ -155,7 +168,7 @@ GitHub Release 由 `.github/workflows/release.yml` 自动创建，无需本地�
 
    将生成的摘要文本替换 CHANGELOG.md 中对应版本段的 `<!-- AI_SUMMARY -->` 占位符。
 
-5. 暂存（与 Step 3.5 一起提交）：
+6. 暂存（与 Step 3.5 一起提交）：
    ```bash
    git add CHANGELOG.md
    ```
