@@ -149,10 +149,12 @@ Watch for the **scraped sources** in particular:
 
 - First (baseline) scan: ~5-10s (11 endpoints, 6 workers, mostly 304-friendly).
 - Subsequent scans with ETag cache: ~3-6s (most endpoints return 304).
-- GitHub unauthenticated API is rate-limited to ~60 req/hour per IP; with
-  ETag caching, repeated checks within an hour are well within limits. If you
-  hit rate limits, the affected tool appears under `HTTP 403 / rate limit` in
-  `error_details` and the rest of the run continues.
+- **GitHub API authentication**: set `GITHUB_ACCESS_TOKEN` in the environment
+  (same env var as github-monitor). With a token, the 9 GitHub-Releases-sourced
+  tools use the 5000/hour authenticated rate limit; without one they fall back
+  to the 60/hour anonymous limit, where concurrent checks (`--workers 6`) can
+  trigger `HTTP 403 / rate limit` errors. Token is optional but strongly
+  recommended.
 
 ## Completion
 

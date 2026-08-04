@@ -69,7 +69,8 @@ def create_ssl_context():
         return ctx
 
 
-def fetch_url(url, cache=None, timeout=TIMEOUT, accept=None, user_agent=None):
+def fetch_url(url, cache=None, timeout=TIMEOUT, accept=None, user_agent=None,
+              bearer_token=None):
     """Fetch a URL with ETag/If-Modified-Since support.
 
     Returns (body_text, status_code, new_cache_entry):
@@ -78,11 +79,17 @@ def fetch_url(url, cache=None, timeout=TIMEOUT, accept=None, user_agent=None):
       - new_cache_entry is a dict of cache headers to store (etag/last_modified),
         possibly empty.
 
+    When ``bearer_token`` is given, an ``Authorization: Bearer <token>`` header
+    is added — used for the GitHub Releases API so requests use the 5000/hour
+    authenticated rate limit instead of the 60/hour anonymous one.
+
     On the first SSL failure, retries once with a relaxed (no-verify) context.
     """
     headers = {"User-Agent": user_agent or _CHROME_UA}
     if accept:
         headers["Accept"] = accept
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
 
     cached = cache.get(url, {}) if cache else {}
     if cached.get("etag"):
@@ -132,7 +139,7 @@ def fetch_url(url, cache=None, timeout=TIMEOUT, accept=None, user_agent=None):
 
 
 def fetch_url_with_retry(url, cache=None, timeout=TIMEOUT, max_retries=2,
-                         accept=None, user_agent=None):
+                         accept=None, user_agent=None, bearer_token=None):
     """Fetch with retry + exponential backoff on transient errors.
 
     Retries on network errors (status -1), 429 (honoring Retry-After), and 5xx.
@@ -140,7 +147,8 @@ def fetch_url_with_retry(url, cache=None, timeout=TIMEOUT, max_retries=2,
     """
     for attempt in range(max_retries + 1):
         body, status, new_cache = fetch_url(
-            url, cache=cache, timeout=timeout, accept=accept, user_agent=user_agent
+            url, cache=cache, timeout=timeout, accept=accept, user_agent=user_agent,
+            bearer_token=bearer_token,
         )
         if body is not None or status == 304:
             return body, status, new_cache
@@ -257,13 +265,21 @@ def _github_url(repo, per_page=10):
 
 
 def fetch_github(tool, cache):
-    """Fetch GitHub Releases for a tool. Returns (result_dict, status_str)."""
+    """Fetch GitHub Releases for a tool. Returns (result_dict, status_str).
+
+    Uses ``GITHUB_ACCESS_TOKEN`` if set (same env var as github-monitor) to get
+    the 5000/hour authenticated rate limit instead of the 60/hour anonymous
+    one. Without a token the request is still made, but concurrent GitHub
+    tools may hit 403 secondary rate limits.
+    """
     repo = tool["repo"]
     url = _github_url(repo)
     exclude_pre = tool.get("exclude_prerelease", False)
+    token = os.environ.get("GITHUB_ACCESS_TOKEN")
     body, status, new_cache = fetch_url_with_retry(
         url, cache=cache, accept="application/vnd.github+json",
         user_agent="tool-update-monitor/1.0",
+        bearer_token=token,
     )
     if status == 304:
         return None, "not_modified"
