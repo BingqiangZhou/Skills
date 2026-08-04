@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "name": "AI/ML",
+      "feeds": [
+        {"name": "OpenAI Blog", "url": "https://openai.com/blog/rss.xml", "language": "en"},
+        {"name": "Google AI Blog", "url": "https://blog.google/technology/ai/rss/", "language": "en"},
+        {"name": "DeepMind Blog", "url": "https://deepmind.google/blog/rss.xml", "language": "en"},
+        {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "language": "en"},
+        {"name": "Anthropic News", "url": "https://www.anthropic.com/feed.xml", "language": "en"},
+        {"name": "机器之心", "url": "https://www.jiqizhixin.com/rss", "language": "zh"},
+        {"name": "量子位", "url": "https://www.qbitai.com/rss", "language": "zh"}
+      ]
+    },
+    {
+      "name": "芯片硬件",
+      "feeds": [
+        {"name": "Tom's Hardware", "url": "https://www.tomshardware.com/feeds/all", "language": "en"},
+        {"name": "AnandTech", "url": "https://www.anandtech.com/rss/", "language": "en"}
+      ]
+    },
+    {
+      "name": "云计算",
+      "feeds": [
+        {"name": "AWS Blog", "url": "https://aws.amazon.com/blogs/aws/feed/", "language": "en"},
+        {"name": "Google Cloud Blog", "url": "https://cloud.google.com/blog/feed/", "language": "en"},
+        {"name": "Azure Blog", "url": "https://azure.microsoft.com/en-us/blog/feed/", "language": "en"}
+      ]
+    },
+    {
+      "name": "开源",
+      "feeds": [
+        {"name": "GitHub Blog", "url": "https://github.blog/feed/", "language": "en"},
+        {"name": "The New Stack", "url": "https://thenewstack.io/feed/", "language": "en"}
+      ]
+    },
+    {
+      "name": "网络安全",
+      "feeds": [
+        {"name": "Krebs on Security", "url": "https://krebsonsecurity.com/feed/", "language": "en"},
+        {"name": "The Hacker News", "url": "https://feeds.feedburner.com/TheHackersNews", "language": "en"},
+        {"name": "Dark Reading", "url": "https://www.darkreading.com/rss.xml", "language": "en"}
+      ]
+    },
+    {
+      "name": "综合科技",
+      "feeds": [
+        {"name": "TechCrunch", "url": "https://techcrunch.com/feed/", "language": "en"},
+        {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "language": "en"},
+        {"name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index", "language": "en"},
+        {"name": "Wired", "url": "https://www.wired.com/feed/rss", "language": "en"},
+        {"name": "VentureBeat", "url": "https://venturebeat.com/feed/", "language": "en"},
+        {"name": "MIT Tech Review", "url": "https://www.technologyreview.com/feed/", "language": "en"},
+        {"name": "36kr", "url": "https://36kr.com/feed", "language": "zh"}
+      ]
+    }
+  ],
+  "hacker_news": [
+    {"name": "HN Frontpage", "url": "https://hnrss.org/frontpage", "min_points": 100},
+    {"name": "HN AI Topics", "url": "https://hnrss.org/newest?q=AI+LLM+GPT+Claude+Gemini+machine+learning", "min_points": 30}
+  ]
+}
