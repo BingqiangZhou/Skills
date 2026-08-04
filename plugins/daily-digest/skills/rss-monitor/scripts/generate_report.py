@@ -195,14 +195,11 @@ def _render_wechat_articles(updates, summary_map, lines, index):
 
         lines.append(f"##### {index}. {account}")
         lines.append("")
-        lines.append(f"**文章**: {title}")
-        lines.append("")
         if url:
-            lines.append(f"**链接**: {url}")
-            lines.append("")
-        if pub_date:
-            lines.append(f"**发布时间**: {pub_date}")
-            lines.append("")
+            lines.append(f"**文章**: [{title}]({url})")
+        else:
+            lines.append(f"**文章**: {title}")
+        lines.append("")
         if ai_summary:
             lines.append(f"**AI 摘要**: {ai_summary}")
             lines.append("")
@@ -277,13 +274,13 @@ def render_tech(updates, summary_map, lines, index, trend_insight=None):
             full_text = u.get("full_text", "")
             ai_summary = summary_map.get(url, {}).get("ai_summary", "")
 
-            lines.append(f"#### {index}. {title}")
-            lines.append("")
-            lines.append(f"**来源**: {source_name} | **发布时间**: {pub_date}")
-            lines.append("")
             if url:
-                lines.append(f"**链接**: {url}")
-                lines.append("")
+                lines.append(f"#### {index}. [{title}]({url})")
+            else:
+                lines.append(f"#### {index}. {title}")
+            lines.append("")
+            lines.append(f"**来源**: {source_name}")
+            lines.append("")
             if ai_summary:
                 lines.append(f"**AI 摘要**: {ai_summary}")
                 lines.append("")
@@ -303,25 +300,13 @@ def render_tech(updates, summary_map, lines, index, trend_insight=None):
             index += 1
             title = item.get("title", "(no title)")
             url = item.get("url", "")
-            points = item.get("hn_points")
-            comments = item.get("hn_comments")
             ai_summary = summary_map.get(url, {}).get("ai_summary", "")
 
-            stats_parts = []
-            if points is not None:
-                stats_parts.append(f"points: {points}")
-            if comments is not None:
-                stats_parts.append(f"comments: {comments}")
-            stats_str = ", ".join(stats_parts)
-
-            lines.append(f"#### {index}. {title}")
-            lines.append("")
-            if stats_str:
-                lines.append(f"**热度**: {stats_str}")
-                lines.append("")
             if url:
-                lines.append(f"**链接**: {url}")
-                lines.append("")
+                lines.append(f"#### {index}. [{title}]({url})")
+            else:
+                lines.append(f"#### {index}. {title}")
+            lines.append("")
             if ai_summary:
                 lines.append(f"**AI 摘要**: {ai_summary}")
                 lines.append("")
@@ -397,16 +382,14 @@ def render_podcast(updates, summary_map, lines, index):
 
         lines.append(f"### {index}. {podcast_name} (排名 {rank})")
         lines.append("")
-        lines.append(f"**单集**: {title}")
+        if display_url:
+            lines.append(f"**单集**: [{title}]({display_url})")
+        else:
+            lines.append(f"**单集**: {title}")
         lines.append("")
-        # Duration and pub_date on one line for compactness
-        meta_parts = [f"**发布时间**: {pub_date}"]
         if duration:
-            meta_parts.append(f"**时长**: ⏱ {duration}")
-        lines.append(" | ".join(meta_parts))
-        lines.append("")
-        lines.append(f"**链接**: {display_url}")
-        lines.append("")
+            lines.append(f"**时长**: ⏱ {duration}")
+            lines.append("")
         lines.append(f"**摘要**: {ai_summary}")
         lines.append("")
         lines.append("---")

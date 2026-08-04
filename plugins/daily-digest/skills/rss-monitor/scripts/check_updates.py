@@ -130,7 +130,9 @@ def run_wechat(feeds_path, cutoff_time, cache, workers=10, category=None, count=
 
     def process(feed):
         with semaphore:
-            time.sleep(random.uniform(0.3, 0.5))
+            # wechat2rss.xlab.app is a unified proxy that tolerates the 10-worker
+            # concurrency; 0.3-0.5s was overly conservative. Lighten to 0.1-0.2s.
+            time.sleep(random.uniform(0.1, 0.2))
             return check_wechat_feed(feed, cutoff_time, cache)
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -546,8 +548,21 @@ def _check_podcast_xiaoyuzhou(podcast, cutoff_time, cache):
     return updates, None, new_cache
 
 
-def run_podcast(podcasts_path, cutoff_time, cache, workers=30, link_type="all", count=1000):
-    """Run the podcast source check. Returns (updates, stats_dict)."""
+def run_podcast(podcasts_path, cutoff_time, cache, workers=30, link_type="all",
+                count=1000, intra_domain_workers=0):
+    """Run the podcast source check. Returns (updates, stats_dict).
+
+    Concurrency model:
+      - Different domains run in parallel (bounded by ``workers``).
+      - Within a single domain, feeds run with limited concurrency
+        (bounded by ``intra_domain_workers``) to avoid rate-limiting while
+        still progressing on large groups (e.g. 493 feeds on xyzfm.space).
+
+    Args:
+        intra_domain_workers: per-domain concurrency (0 = auto: 8 for large
+            groups of professional feed-proxies/distributors, 1 for small
+            groups — preserving the original conservative serial behavior).
+    """
     with open(podcasts_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -568,11 +583,32 @@ def run_podcast(podcasts_path, cutoff_time, cache, workers=30, link_type="all", 
         return _check_podcast_rss(podcast, cutoff_time, cache)
 
     def process_domain_group(podcast_group):
-        """Process same-domain podcasts serially to avoid rate-limiting."""
-        results = []
-        for p in podcast_group:
-            results.append((p, process_podcast(p)))
-            time.sleep(random.uniform(0.1, 0.3))
+        """Process same-domain podcasts with bounded intra-domain concurrency.
+
+        Groups with many feeds (e.g. xyzfm.space ~493, ximalaya ~224) used to
+        run fully serial, making them the dominant bottleneck while ~28 other
+        domain workers sat idle. The major feed-proxies are robust enough to
+        tolerate a handful of concurrent requests, so we parallelize within a
+        domain while keeping small groups serial (1 worker).
+        """
+        n = len(podcast_group)
+        if n <= 1:
+            return [(podcast_group[0], process_podcast(podcast_group[0]))]
+
+        # Auto: 8 for large groups, 1 for tiny ones (keep conservative).
+        limit = intra_domain_workers if intra_domain_workers > 0 else (8 if n >= 20 else 1)
+        limit = min(limit, n)
+
+        if limit == 1:
+            # Serial path with light spacing (unchanged behavior for small groups).
+            return [(p, process_podcast(p)) for p in podcast_group]
+
+        # Concurrent path: results stay in input order (group order is stable).
+        results = [None] * n
+        with ThreadPoolExecutor(max_workers=limit) as inner:
+            futs = {inner.submit(process_podcast, p): i for i, p in enumerate(podcast_group)}
+            for fut in as_completed(futs):
+                results[futs[fut]] = (podcast_group[futs[fut]], fut.result())
         return results
 
     # Group by domain — same domain serial, different domains parallel
@@ -902,6 +938,11 @@ def main():
     parser.add_argument("--hours", type=int, default=24, help="Time window in hours (default: 24)")
     parser.add_argument("--workers", type=int, default=0,
                         help="Concurrent workers per source (0 = use per-source defaults)")
+    parser.add_argument("--podcast-domain-workers", type=int, default=0,
+                        help="Per-domain concurrency inside podcast domain groups "
+                             "(0 = auto: 8 for large groups, 1 for small)")
+    parser.add_argument("--serial-sources", action="store_true",
+                        help="Run sources sequentially (default: parallel across sources)")
     parser.add_argument("--category", default=None, help="Filter by category (source-specific)")
     parser.add_argument("--count", type=int, default=0, help="Max feeds to check (0 = all)")
     args = parser.parse_args()
@@ -922,8 +963,8 @@ def main():
     source_stats = {}
     check_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    for src in sources_to_run:
-        print(f"\n--- Checking {src} source ---")
+    def run_one(src):
+        """Run a single source, returning (src, updates, stats)."""
         if src == "wechat":
             w = args.workers if args.workers > 0 else 10
             updates, stats = run_wechat(
@@ -941,10 +982,15 @@ def main():
             updates, stats = run_podcast(
                 refs_dir / "podcasts.json", cutoff_time, cache,
                 workers=w, count=args.count if args.count > 0 else 1000,
+                intra_domain_workers=args.podcast_domain_workers,
             )
         else:
-            continue
+            updates, stats = [], {}
+        return src, updates, stats
 
+    def report_one(src, updates, stats):
+        """Print the per-source summary (kept identical to the old output)."""
+        print(f"\n--- Checking {src} source ---")
         all_updates.extend(updates)
         source_stats[src] = {"checked": stats["checked"], "updates": len(updates),
                              **{k: v for k, v in stats.items() if k not in ("checked",)}}
@@ -963,6 +1009,27 @@ def main():
         if stats.get("short_text_count"):
             print(f"  NOTE: {stats['short_text_count']} articles have short full_text "
                   f"(< {WECHAT_SHORT_TEXT_THRESHOLD} chars) — consider running Step 4 (fetch_articles.py)")
+
+    if args.serial_sources or len(sources_to_run) == 1:
+        # Sequential mode: original behavior, cleaner per-source logging.
+        for src in sources_to_run:
+            src, updates, stats = run_one(src)
+            report_one(src, updates, stats)
+    else:
+        # Parallel mode: independent sources (wechat/tech/podcast) run
+        # concurrently. Each source owns disjoint feed URLs, and CPython's GIL
+        # makes individual dict[key]=value writes safe, so the shared `cache`
+        # dict needs no extra locking.
+        with ThreadPoolExecutor(max_workers=len(sources_to_run)) as ex:
+            futures = {ex.submit(run_one, src): src for src in sources_to_run}
+            results = {}
+            for fut in as_completed(futures):
+                src, updates, stats = fut.result()
+                results[src] = (updates, stats)
+        # Report in the stable canonical order for a consistent log.
+        for src in sources_to_run:
+            updates, stats = results[src]
+            report_one(src, updates, stats)
 
     # Prune stale cache entries (URLs no longer in any monitored source)
     current_urls = _load_all_feed_urls(refs_dir, sources_to_run)
