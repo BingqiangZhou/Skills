@@ -37,7 +37,7 @@
 - 「检查 GitHub 动态」「独立开发者项目更新」「阮一峰开源自荐」→ github-monitor（只采集）
 - 「检查工具更新」「版本检查」「有没有新版本」→ tool-update-monitor（只采集）
 
-三个采集 skill 单独触发时只保存数据到 `workspaces/daily-digests/<source>/latest_updates.json`；想生成日报请用 daily-digest，它输出到当前项目（cwd）的 `workspaces/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md`。
+三个采集 skill 单独触发时只保存数据到 `workspaces/daily-digests/<source>/latest_updates.json`；想生成日报请用 daily-digest，它输出到当前项目（cwd）的 `workspaces/daily-digests/reports/YYYY-MM-DD/daily-digest_HH-MM.md`。
 
 ## License
 

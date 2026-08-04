@@ -1,6 +1,6 @@
 ---
 name: github-monitor
-version: "1.0.3"
+version: "1.0.4"
 description: |
   Collect and save new GitHub repository activity — newly merged pull requests
   and/or new issues — to latest_updates.json. This is the COLLECTION layer
@@ -190,7 +190,7 @@ After collection, inform the user:
 - The output path: `workspaces/daily-digests/github-monitor/latest_updates.json`
 - To generate a unified AI-summarized daily digest, run the **daily-digest**
   skill — it consumes this file (plus the RSS and tool-update data) and
-  produces `workspaces/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md`.
+  produces `workspaces/daily-digests/reports/YYYY-MM-DD/daily-digest_HH-MM.md`.
 - Note whether a GitHub token was used (if `update_count` is suspiciously low
   and no token was set, the API rate limit may be the cause — suggest setting
   `GITHUB_ACCESS_TOKEN`).

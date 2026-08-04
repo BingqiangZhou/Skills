@@ -5,7 +5,7 @@
 - **采集层**（3 个 skill）：各自只负责抓取数据并保存为 `latest_updates.json`，不做总结、不出报告。
 - **日报层**（1 个 skill）：`daily-digest` 编排三个采集任务、做 AI 总结、生成一份**统一 Markdown 日报**。
 
-所有日报统一输出到 `workspaces/daily-digests/YYYY-MM-DD/` 目录。
+所有日报统一输出到 `workspaces/daily-digests/reports/YYYY-MM-DD/` 目录。
 
 ## Skills 一览
 
@@ -92,8 +92,9 @@ workspaces/                           # 运行时产物（gitignored，只保留
     rss/                              # RSS 采集产物 latest_updates.json
     github-monitor/                   # GitHub 采集产物 latest_updates.json
     tool-update-monitor/              # 工具采集产物 latest_updates.json
-    YYYY-MM-DD/
-      daily-digest_HH-MM.md           # ★ 统一日报（RSS + GitHub + 工具）
+    reports/                          # 统一日报输出
+      YYYY-MM-DD/
+        daily-digest_HH-MM.md         # ★ 统一日报（RSS + GitHub + 工具）
   journals/                           # agent-journal 产出
     YYYY-MM-DD/
       journal_HH-MM.md               # ★ 每日手记
@@ -116,7 +117,7 @@ daily-digest（日报层 · 编排）
   AI 总结（daily-digest 编排 sub-agents + 复用兄弟 merge 脚本）
         │
         ▼
-  generate_unified_report.py  →  workspaces/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md
+  generate_unified_report.py  →  workspaces/daily-digests/reports/YYYY-MM-DD/daily-digest_HH-MM.md
 ```
 
 ---

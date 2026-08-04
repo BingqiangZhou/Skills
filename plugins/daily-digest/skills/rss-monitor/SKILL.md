@@ -1,6 +1,6 @@
 ---
 name: rss-monitor
-version: "1.1.2"
+version: "1.1.3"
 description: |
   Collect and save updates from RSS information sources (WeChat Official
   Accounts, tech blogs, Chinese podcasts). This is the COLLECTION layer only:
@@ -170,6 +170,6 @@ After collection, inform the user:
 - The output path: `workspaces/daily-digests/rss/latest_updates.json`
 - To generate a unified AI-summarized daily digest, run the **daily-digest**
   skill — it consumes this file (plus the GitHub and tool-update data) and
-  produces `workspaces/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md`.
+  produces `workspaces/daily-digests/reports/YYYY-MM-DD/daily-digest_HH-MM.md`.
 - They can re-run a single source with `--source wechat|tech|podcast`, or
   filter by `--category NAME`.

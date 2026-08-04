@@ -1,6 +1,6 @@
 ---
 name: tool-update-monitor
-version: "1.0.3"
+version: "1.0.4"
 description: |
   Collect and save new releases of developer tools and operating systems to
   latest_updates.json. This is the COLLECTION layer only: it detects new
@@ -163,7 +163,7 @@ After collection, inform the user:
 - The output path: `workspaces/daily-digests/tool-update-monitor/latest_updates.json`
 - To generate a unified AI-summarized daily digest, run the **daily-digest**
   skill — it consumes this file (plus the RSS and GitHub data) and produces
-  `workspaces/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md`.
+  `workspaces/daily-digests/reports/YYYY-MM-DD/daily-digest_HH-MM.md`.
 - Note any tools that failed to check (especially ZCode's HTML scrape or
   GitHub rate limits) so the user knows the coverage isn't 100%.
 - Mention they can filter next time: `--category 网络代理` or `--tool v2rayn`,

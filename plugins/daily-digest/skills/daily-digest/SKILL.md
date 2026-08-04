@@ -1,6 +1,6 @@
 ---
 name: daily-digest
-version: "1.1.2"
+version: "1.1.3"
 description: |
   Orchestrate the three collector skills (rss-monitor, github-monitor,
   tool-update-monitor) into a single run and produce ONE unified daily digest
@@ -75,7 +75,7 @@ collection logic stays reusable and the report logic stays centralized.
       rss_podcasts_summaries.json  # Podcasts track split out
       digest_narrative.json      # Editor narrative (overview + article_topics
                                  #   + podcast_topics + other)
-    YYYY-MM-DD/                  # Unified report output
+    reports/YYYY-MM-DD/          # Unified report output
       daily-digest_HH-MM.md      # Narrative report (times in CST / UTC+8)
 ```
 
@@ -95,7 +95,7 @@ at `{skill_directory}/../rss-monitor`, `/../github-monitor`, and
 
 ```bash
 mkdir -p "{project_root}/workspaces/daily-digests/daily-digest"
-mkdir -p "{project_root}/workspaces/daily-digests/$(date +%Y-%m-%d)"
+mkdir -p "{project_root}/workspaces/daily-digests/reports/$(date +%Y-%m-%d)"
 ```
 
 ### Step 1: Trigger collection across all sources
@@ -271,7 +271,7 @@ cd "{skill_directory}" && python scripts/generate_unified_report.py \
   --github-summaries "{project_root}/workspaces/daily-digests/daily-digest/github_ai_summaries.json" \
   --tool-input "{project_root}/workspaces/daily-digests/daily-digests/tool-update-monitor/latest_updates.json" \
   --tool-highlights "{project_root}/workspaces/daily-digests/daily-digest/tool_ai_highlights.json" \
-  -o "{project_root}/workspaces/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md"
+  -o "{project_root}/workspaces/daily-digests/reports/YYYY-MM-DD/daily-digest_HH-MM.md"
 ```
 
 Replace `YYYY-MM-DD` with today's date (CST) and `HH-MM` with current time.
