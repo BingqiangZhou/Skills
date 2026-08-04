@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.2.0 (2026-08-04)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.1.0...v1.2.0)**
+> 本次发布将日报重构为以内容为核心的叙事综述(文章/播客双叙事轨 + GitHub/工具紧凑列表),并按 progressive disclosure 拆分 SKILL.md;同时清理三个 per-source generate_report.py 死代码,修复 CHANGELOG 历史覆盖风险,并为 tool-update-monitor 接入 GITHUB_ACCESS_TOKEN。
+>
+> 共 10 commits,其中 🚀 Features 1 | 🐛 Fixes 3 | 🔨 Refactor 3 | 📝 Docs 1 | ⚙️ Misc 2
+>
+> **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.1.0...v1.2.0)**
+
+### 🚀 Features
+
+- **daily-digest**: 日报改为内容为核心的叙事综述([707668c](https://github.com/BingqiangZhou/Skills/commit/707668c7a65bcb4861826ea0ac224cf4e5330de5))
+
+### 🐛 Bug Fixes
+
+- **changelog**: 恢复 v1.0.0 历史 + 补全 v1.1.0 摘要([f585b43](https://github.com/BingqiangZhou/Skills/commit/f585b43e3dc241ee62565c2f994bfe145fb80a22))
+- **release**: 防止 CHANGELOG 历史版本被覆盖丢失([fa506c9](https://github.com/BingqiangZhou/Skills/commit/fa506c91816f5e8d3dc1fcb7a1d57ce7df6d38f8))
+- **tool-monitor**: GitHub 采集接入 GITHUB_ACCESS_TOKEN([9351ca6](https://github.com/BingqiangZhou/Skills/commit/9351ca6b86b3476ad5a5f6a88f2c3f02d5ed5f4d))
+
+### 🔨 Refactor
+
+- **daily-digest**: 按 progressive disclosure 拆分 SKILL.md([35d14c0](https://github.com/BingqiangZhou/Skills/commit/35d14c0d3554b97098f07b25e82c1f7d2cfd28a4))
+- 删除三个 per-source generate_report.py 死代码([a3ad9a4](https://github.com/BingqiangZhou/Skills/commit/a3ad9a494cb7879d6c76fc20e13db8fa51ba15f8))
+- **daily-digest**: 删除 generate_unified_report.py 中的死代码([c37008e](https://github.com/BingqiangZhou/Skills/commit/c37008e0ea57a69c4f36b5a458d0112357af5a41))
+
+### 📝 Documentation
+
+- **daily-digest**: README 更新为混合渲染说明([e54e509](https://github.com/BingqiangZhou/Skills/commit/e54e5090e45fa823a78b8f2f94cf33b03030c3aa))
+
+### ⚙️ Miscellaneous
+
+- 忽略 AGENTS.md + bump 改动 skill 版本号([4359f8c](https://github.com/BingqiangZhou/Skills/commit/4359f8caba7779292e01ea69220cb00db5fa4d45))
+- 补 a3ad9a4 漏升的 skill 版本号([d1954b2](https://github.com/BingqiangZhou/Skills/commit/d1954b235964e8c73702095858cc0ad5191c55d0))
 ## v1.1.0 (2026-08-04)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.0.0...v1.1.0)**
 本次发布重构为**采集层/日报层两层架构**：新增 daily-digest 编排 skill 统一三源采集与 AI 总结；rss-monitor 抓取并发优化（播客域内并发 + 三源并行），冷缓存提速约 2.2x；release 工具链引入两层版本模型（插件全局版 + skill 独立版，改谁 bump 谁）。各 skill 新增 version 字段独立演进。
