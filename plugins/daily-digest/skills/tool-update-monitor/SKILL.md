@@ -69,10 +69,6 @@ Microsoft's release-health page. Add/remove tools in
     latest_updates.json            # ← THIS skill's output (input to daily-digest)
 ```
 
-> NOTE: The legacy `generate_report.py` script is still present in this
-> directory for backward compatibility, but this skill no longer drives it.
-> Report generation is handled by the daily-digest skill.
-
 ## How "new" detection works
 
 - **Baseline run** (no `.last_seen.json`, or `--force-baseline`): records the

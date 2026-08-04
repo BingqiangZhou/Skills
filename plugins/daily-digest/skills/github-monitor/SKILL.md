@@ -66,10 +66,9 @@ The default `repos.json` ships two entries:
     latest_updates.json               # ← THIS skill's output (input to daily-digest)
 ```
 
-> NOTE: The legacy `merge_summaries.py` and `generate_report.py` scripts are
-> still present in this directory for backward compatibility, but this skill
-> no longer drives them. Summarization and report generation are handled by
-> the daily-digest skill, which reuses `merge_summaries.py`.
+> NOTE: This skill is **collection only** — it does NOT summarize or render a
+> report. Summarization and report generation are handled by the daily-digest
+> skill, which reuses this skill's `merge_summaries.py`.
 
 ## Execution Steps
 
