@@ -1,0 +1,12 @@
+{
+  "name": "daily-digest",
+  "description": "中文内容更新监控与每日摘要生成 — RSS（微信公众号 / 科技博客 / 播客）、GitHub 动态（PR / issue）、开发工具版本更新三大监控 skill，AI 生成统一 Markdown 日报。",
+  "version": "1.0.0",
+  "author": {
+    "name": "Bingqiang Zhou"
+  },
+  "homepage": "https://github.com/BingqiangZhou/Skills",
+  "license": "MIT",
+  "keywords": ["rss", "digest", "monitor", "wechat", "podcast", "github", "chinese", "日报"],
+  "category": "productivity"
+}

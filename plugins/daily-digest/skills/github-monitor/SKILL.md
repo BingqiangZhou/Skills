@@ -51,7 +51,7 @@ The default `repos.json` ships two entries:
 ## Architecture
 
 ```
-.claude/skills/github-monitor/
+{skill_directory}/             # This skill's directory (inside the plugin)
   SKILL.md                  # This file
   scripts/
     _common.py              # GitHub HTTP helpers (ETag, rate-limit, auth)
@@ -61,7 +61,7 @@ The default `repos.json` ships two entries:
   references/
     repos.json              # Target repos + per-repo monitor/filter rules
 
-{project_root}/
+{project_root}/                # The user's current project (cwd at run time)
   workspaces/github-monitor/          # Runtime intermediate files (gitignored)
     .http_cache.json                  # GitHub API ETag cache
     latest_updates.json
@@ -74,9 +74,9 @@ The default `repos.json` ships two entries:
 
 ## Execution Steps
 
-Follow these steps in order. Replace `{skill_directory}` with the path to
-this `.claude/skills/github-monitor/` directory and `{project_root}` with the
-project root (`E:/Projects/AI/OpenClaw_Skills`).
+Follow these steps in order. Replace `{skill_directory}` with the absolute
+path to this skill's directory and `{project_root}` with the user's current
+project (the working directory at run time).
 
 ### Step 0: Ensure workspace directories exist
 

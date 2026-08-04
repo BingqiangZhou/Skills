@@ -49,7 +49,7 @@ Microsoft's release-health page. Add/remove tools in
 ## Architecture
 
 ```
-.claude/skills/tool-update-monitor/
+{skill_directory}/                # This skill's directory (inside the plugin)
   SKILL.md                  # This file
   scripts/
     check_updates.py        # Fetch all sources; compute NEW vs last-seen
@@ -57,7 +57,7 @@ Microsoft's release-health page. Add/remove tools in
   references/
     tools.json              # Curated tool list (edit to add/remove tools)
 
-{project_root}/
+{project_root}/                    # The user's current project (cwd at run time)
   workspaces/tool-update-monitor/   # Runtime intermediate files (gitignored)
     .http_cache.json               # ETag/If-Modified-Since per source URL
     .last_seen.json                # { tool_id: { version, published_at, checked_at } }
@@ -91,9 +91,9 @@ Microsoft's release-health page. Add/remove tools in
 
 ## Execution Steps
 
-Follow these steps in order. Replace `{skill_directory}` with the path to
-this `.claude/skills/tool-update-monitor/` directory and `{project_root}`
-with the project root (`E:/Projects/AI/OpenClaw_Skills`).
+Follow these steps in order. Replace `{skill_directory}` with the absolute
+path to this skill's directory and `{project_root}` with the user's current
+project (the working directory at run time).
 
 ### Step 0: Ensure workspace directories exist
 
