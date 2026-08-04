@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.3.0 (2026-08-04)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.2.0...v1.3.0)**
+> 新增独立 plugin `agent-journal`——agent 每日自我回顾 skill,中文回顾配中英双语诗意收尾,无采集脚本(数据源交给 agent 自主判断);同时把顶层 `daily-digests/` 与 `journals/` 及采集中间件统一收纳到 `workspaces/` 下,形成单一运行时产物根目录。
+>
+> 共 2 commits,其中 🚀 Features 1 | 🔨 Refactor 1
+>
+> **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.2.0...v1.3.0)**
+
+### 🚀 Features
+
+- **agent-journal**: Add agent daily self-reflection plugin([66f8ad3](https://github.com/BingqiangZhou/Skills/commit/66f8ad3c32b9e0748ad7a509f7278765c76af54c))
+
+### 🔨 Refactor
+
+- 统一运行时产物到 workspaces/ 下([3795bac](https://github.com/BingqiangZhou/Skills/commit/3795bac9a086323a02b73ef9d19c5d149b21575f))
 ## v1.2.0 (2026-08-04)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.1.0...v1.2.0)**
 > 本次发布将日报重构为以内容为核心的叙事综述(文章/播客双叙事轨 + GitHub/工具紧凑列表),并按 progressive disclosure 拆分 SKILL.md;同时清理三个 per-source generate_report.py 死代码,修复 CHANGELOG 历史覆盖风险,并为 tool-update-monitor 接入 GITHUB_ACCESS_TOKEN。
