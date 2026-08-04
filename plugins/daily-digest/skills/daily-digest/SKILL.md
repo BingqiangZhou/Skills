@@ -1,6 +1,6 @@
 ---
 name: daily-digest
-version: "1.1.4"
+version: "1.1.5"
 description: |
   Orchestrate the three collector skills (rss-monitor, github-monitor,
   tool-update-monitor) into a single run and produce ONE unified daily digest
@@ -54,6 +54,8 @@ collection logic stays reusable and the report logic stays centralized.
     editor-prompts.md             # Article & podcast editor prompts (2d)
   scripts/
     prepare_batches.py            # Split latest_updates.json into sub-agent batches
+    split_rss_summaries.py        # Split rss_ai_summaries.json → articles / podcasts tracks
+    merge_narratives.py           # Merge articles + podcasts editor outputs → digest_narrative.json
     generate_unified_report.py    # Render the unified daily digest Markdown
 
 # Sibling skills' scripts are reused (not copied) from:
@@ -249,11 +251,13 @@ podcasts never cross-reference); GitHub and tools are rendered directly as
 compact lists by Step 3, so they do NOT take part in the narrative.
 
 **Read `references/editor-prompts.md` in full before running this step** — it
-contains the split script, both editor prompts, and the merge script. The
+contains the split/merge script invocations and both editor prompts. The
 flow is:
 
 1. **Split** `rss_ai_summaries.json` into `rss_articles_summaries.json` and
-   `rss_podcasts_summaries.json` (inline Python in §2d-0).
+   `rss_podcasts_summaries.json` via `scripts/split_rss_summaries.py`
+   (§2d-0). If it reports `podcasts: 0` while the collector had podcasts,
+   **stop and investigate** — do not launch the editors on an empty track.
 2. **Two parallel sub-agents** (§2d-1 articles editor, §2d-2 podcasts editor):
    - Articles editor → `digest_narrative_articles.json`
      (`overview` + `article_topics` + `other`; **no media-channel names**, only
@@ -261,7 +265,10 @@ flow is:
    - Podcasts editor → `digest_narrative_podcasts.json`
      (`podcast_topics`; clusters 4-6 themes; bundles lifestyle/crime episodes
      briefly without sensitive detail).
-3. **Merge** both into `digest_narrative.json` (inline Python in §merge).
+3. **Merge** both into `digest_narrative.json` via
+   `scripts/merge_narratives.py` (§merge). The merge is non-destructive; a
+   missing track is skipped with a warning, and Step 3 will render a visible
+   placeholder so a lost podcast section can never pass silently.
 
 ### Step 3: Generate the unified digest report
 
@@ -281,7 +288,10 @@ All flags except `-o` are optional:
 
 - `--rss-input` + `--digest-narrative` drive the **narrative** part (overview
   + 今日重点 + 播客精选 + 其他动态). Omit `--digest-narrative` only if Step 2d
-  was skipped/failed (the overview then degrades to a fallback string).
+  was skipped/failed (the overview then degrades to a fallback string). If the
+  collector saw podcasts but the narrative has no `podcast_topics`, the report
+  renders a visible ⚠️ placeholder under 「🎧 播客精选」 instead of silently
+  dropping the section — treat that as a signal to rerun Step 2d.
 - `--github-input` + `--github-summaries` drive the **GitHub compact list**.
 - `--tool-input` + `--tool-highlights` drive the **tool compact list**.
 - Optional fallback flags (only consulted when `--digest-narrative` is missing):

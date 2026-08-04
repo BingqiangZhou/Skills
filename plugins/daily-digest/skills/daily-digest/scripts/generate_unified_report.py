@@ -197,24 +197,52 @@ def _fallback_overview(digest_highlights_text, tool_overall, rss_insight):
     return "\n\n".join(snippets)
 
 
-def _render_topic_list(lines, heading, topics):
+def _expected_podcast_count(rss_data):
+    """Count ``source == "podcast"`` items in the RSS collector output.
+
+    Used to tell whether the podcast narrative *should* have been produced, so
+    the report can warn loudly instead of silently omitting the section when
+    the editor sub-agent failed or produced empty output.
+    """
+    if not rss_data:
+        return 0
+    return sum(1 for u in rss_data.get("updates", [])
+               if u.get("source") == "podcast")
+
+
+def _render_topic_list(lines, heading, topics, missing_placeholder=None):
     """Render a numbered list of topic narratives under ``heading``.
 
-    No-op when ``topics`` is empty.
+    When ``topics`` is non-empty, renders the list as before. When empty:
+
+    - If ``missing_placeholder`` is None (default): no-op (back-compat for
+      callers that genuinely want silence when there's nothing to say).
+    - If ``missing_placeholder`` is a string: still emit the ``## heading``
+      followed by the placeholder block, so the section is never silently
+      dropped — the reader always knows it was expected.
     """
-    if not topics:
+    if topics:
+        lines.append(f"## {heading}")
+        lines.append("")
+        for i, topic in enumerate(topics, 1):
+            title = topic.get("title") or f"话题 {i}"
+            narrative = topic.get("narrative") or ""
+            lines.append(f"### {i}. {title}")
+            lines.append("")
+            lines.append(narrative if narrative else "*(暂无叙述)*")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+        return
+
+    if missing_placeholder is None:
         return
     lines.append(f"## {heading}")
     lines.append("")
-    for i, topic in enumerate(topics, 1):
-        title = topic.get("title") or f"话题 {i}"
-        narrative = topic.get("narrative") or ""
-        lines.append(f"### {i}. {title}")
-        lines.append("")
-        lines.append(narrative if narrative else "*(暂无叙述)*")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
+    lines.append(missing_placeholder)
+    lines.append("")
+    lines.append("---")
+    lines.append("")
 
 
 # ===========================================================================
@@ -460,6 +488,7 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
     # --- Overview + 今日重点(文章) + 播客精选 + 其他动态 (or fallback) ---
     overview, article_topics, podcast_topics, other = build_narrative(narrative_data)
     has_narrative = bool(overview or article_topics or podcast_topics or other)
+    expected_podcasts = _expected_podcast_count(rss_data)
 
     lines.append("## 📊 今日概览")
     lines.append("")
@@ -478,8 +507,34 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
                      "如需可重跑 daily-digest 补齐。")
         lines.append("")
 
-    _render_topic_list(lines, "🔥 今日重点", article_topics)
-    _render_topic_list(lines, "🎧 播客精选", podcast_topics)
+    # Article topics never silently vanish either: if the collector had
+    # non-podcast items but no article narrative came back, surface it.
+    expected_articles = (len(rss_data.get("updates", [])) if rss_data else 0) \
+        - expected_podcasts
+    article_placeholder = None
+    if not article_topics and expected_articles > 0:
+        article_placeholder = (
+            f"> ⚠️ 本轮采集到 {expected_articles} 条文章/微信公众号更新，"
+            "但未生成文章叙事（文章主编步骤缺失或失败），可重跑 daily-digest 补齐。"
+        )
+
+    # Podcast section: NEVER silently drop. If the collector saw podcasts but
+    # the editor produced no podcast_topics, emit the heading + a clear warning
+    # so a missing podcast track is obvious (not invisible).
+    podcast_placeholder = None
+    if not podcast_topics and expected_podcasts > 0:
+        podcast_placeholder = (
+            f"> ⚠️ 本轮采集到 {expected_podcasts} 条播客，"
+            "但未生成播客叙事（播客主编步骤缺失或失败），可重跑 daily-digest 补齐。"
+        )
+        print(f"WARNING: expected {expected_podcasts} podcasts but "
+              f"podcast_topics is empty; emitting placeholder in report.",
+              file=sys.stderr)
+
+    _render_topic_list(lines, "🔥 今日重点", article_topics,
+                       missing_placeholder=article_placeholder)
+    _render_topic_list(lines, "🎧 播客精选", podcast_topics,
+                       missing_placeholder=podcast_placeholder)
 
     if other:
         lines.append("## 📌 其他动态")
@@ -622,6 +677,12 @@ def main():
     if tool_data is not None:
         rendered.append(f"Tool({tool_data.get('metadata', {}).get('update_count', 0)})")
     mode = "narrative" if narrative_data else "fallback"
+    # Podcast narrative coverage — surfaces a missing track at a glance.
+    if rss_data is not None:
+        _, _, pod_topics, _ = build_narrative(narrative_data)
+        expected = _expected_podcast_count(rss_data)
+        if expected > 0:
+            rendered.append(f"Podcasts({len(pod_topics)} topics / {expected} eps)")
     print(f"Unified report written to {output_path} "
           f"({', '.join(rendered)}, {mode})")
 

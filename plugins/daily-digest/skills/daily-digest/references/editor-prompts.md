@@ -13,35 +13,26 @@ tracks — they never cross-reference each other.
 
 The merged `rss_ai_summaries.json` mixes all three RSS sources. Split it by
 `source` (looked up from `workspaces/daily-digests/data/rss/latest_updates.json`) so each editor
-sub-agent gets only its track:
+sub-agent gets only its track. Use the standalone split script
+(`scripts/split_rss_summaries.py`) rather than an inline heredoc — it prints
+counts you can guard on and avoids shell quoting pitfalls:
 
 ```bash
-python - <<'PY'
-import json
-from pathlib import Path
-
-base = Path("{project_root}/workspaces/daily-digests/data")
-lu = json.load(open(base / "rss/latest_updates.json", encoding="utf-8"))
-url2src = {u.get("url", "").strip(): u.get("source", "")
-           for u in lu.get("updates", [])}
-summ = json.load(open(base / "daily-digest/rss_ai_summaries.json", encoding="utf-8"))
-
-articles, podcasts = [], []
-for e in summ.get("summaries", []):
-    url = (e.get("url") or "").strip()
-    rec = {"url": url, "ai_summary": e.get("ai_summary", ""),
-           "category": e.get("category", ""), "source": url2src.get(url, "")}
-    (podcasts if rec["source"] == "podcast" else articles).append(rec)
-
-json.dump({"summaries": articles},
-          open(base / "daily-digest/rss_articles_summaries.json", "w", encoding="utf-8"),
-          ensure_ascii=False, indent=2)
-json.dump({"summaries": podcasts},
-          open(base / "daily-digest/rss_podcasts_summaries.json", "w", encoding="utf-8"),
-          ensure_ascii=False, indent=2)
-print(f"articles: {len(articles)}  podcasts: {len(podcasts)}")
-PY
+cd "{skill_directory}" && python scripts/split_rss_summaries.py \
+  --rss-input "{project_root}/workspaces/daily-digests/data/rss/latest_updates.json" \
+  --summaries "{project_root}/workspaces/daily-digests/data/daily-digest/rss_ai_summaries.json" \
+  --output-dir "{project_root}/workspaces/daily-digests/data/daily-digest"
 ```
+
+It writes `rss_articles_summaries.json` and `rss_podcasts_summaries.json` and
+prints e.g. `articles: 159  podcasts: 101`.
+
+**Guardrail — do not proceed with an empty podcast track.** If the script prints
+`podcasts: 0` while also printing a non-zero `collector podcasts:` count, the
+split lost every podcast (usually a stale/missing `rss_ai_summaries.json` or a
+source-tag mismatch). Stop and investigate before launching the editors —
+otherwise the report's 「🎧 播客精选」 section will be empty. The report
+generator will also emit a visible warning, but it's best to catch it here.
 
 ---
 
@@ -173,23 +164,21 @@ CRITICAL - Encoding rules to avoid broken JSON:
 Run 2d-1 and 2d-2 as two parallel sub-agents. They write to SEPARATE files
 (`digest_narrative_articles.json` and `digest_narrative_podcasts.json`) to
 avoid any write race. The main flow then merges them into the single
-`digest_narrative.json` consumed by Step 3:
+`digest_narrative.json` consumed by Step 3. Use the standalone merge script
+(`scripts/merge_narratives.py`) — it does a **non-destructive field merge**
+(each file contributes only its own keys), so an unexpected key in one file
+can never clobber the other's content:
 
 ```bash
-python - <<'PY'
-import json
-from pathlib import Path
-base = Path("{project_root}/workspaces/daily-digests/data/daily-digest")
-merged = {"overview": "", "article_topics": [], "podcast_topics": [], "other": ""}
-for name in ("digest_narrative_articles.json", "digest_narrative_podcasts.json"):
-    p = base / name
-    if p.exists():
-        merged.update(json.load(open(p, encoding="utf-8")))
-json.dump(merged, open(base / "digest_narrative.json", "w", encoding="utf-8"),
-          ensure_ascii=False, indent=2)
-print("merged ->", base / "digest_narrative.json")
-PY
+cd "{skill_directory}" && python scripts/merge_narratives.py \
+  --input-dir "{project_root}/workspaces/daily-digests/data/daily-digest" \
+  --output "{project_root}/workspaces/daily-digests/data/daily-digest/digest_narrative.json"
 ```
+
+It prints the merged counts (e.g. `article_topics: 8`, `podcast_topics: 6`). A
+missing/corrupt editor file is skipped with a warning rather than crashing —
+the report generator will then render a visible placeholder for the missing
+track instead of silently omitting it.
 
 Note: the legacy `digest_highlights.json` (3-5 one-line highlights) is no
 longer produced. If one from an older run is present, the report generator
