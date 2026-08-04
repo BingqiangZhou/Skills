@@ -106,7 +106,8 @@ GitHub Release 由 `.github/workflows/release.yml` 自动创建，无需本地�
 
    Output:
      [x] CHANGELOG.md
-     [x] plugin.json version → <VERSION without v>
+     [x] plugin.json version → <VERSION without v>（插件全局版本）
+     [x] SKILL.md version → 仅 bump 有改动的 skill（各自独立版本）
      [x] Git tag <VERSION>
      [x] Push to origin → GitHub Action auto-creates Release
 
@@ -159,27 +160,75 @@ GitHub Release 由 `.github/workflows/release.yml` 自动创建，无需本地�
    git add CHANGELOG.md
    ```
 
-### Step 3.5: 同步 plugin.json 版本号
+### Step 3.5: 同步版本号
 
-本仓库的唯一版本号在 `plugins/daily-digest/.claude-plugin/plugin.json` 的 `"version"` 字段，发版时需与 git tag 保持一致。
+本仓库采用**两层版本**模型：
 
-1. 将 `"version"` 更新为 `<VERSION>`（**去掉 `v` 前缀**，如 tag 是 `v1.0.1` 则改为 `"1.0.1"`）：
+- **插件全局版本**：`plugins/daily-digest/.claude-plugin/plugin.json` 的 `"version"` 字段 + git tag（`vX.Y.Z`）+ CHANGELOG.md。每次发版必 bump，代表整个插件包的发版。
+- **各 skill 独立版本**：`plugins/daily-digest/skills/*/SKILL.md` frontmatter 的 `version:` 字段。**只 bump 本次有改动的 skill**，未改动的 skill 保持原版本不动。skill 版本号独立演进，与插件全局版本**互不绑定**。
+
+#### 3.5.1 插件全局版本 → plugin.json
+
+将 `"version"` 更新为 `<VERSION>`（**去掉 `v` 前缀**，如 tag 是 `v1.0.1` 则改为 `"1.0.1"`）：
+```bash
+# 只替换 version 行，保持 JSON 其余结构与缩进不变
+sed -i 's/"version":[[:space:]]*"[0-9][^"]*"/"version": "<VERSION_WITHOUT_V>"/' plugins/daily-digest/.claude-plugin/plugin.json
+```
+（Windows Git Bash 下 `sed -i` 可用；若环境不支持，直接用编辑器手动改该行。）
+
+校验改动只动了 version 行：
+```bash
+git diff plugins/daily-digest/.claude-plugin/plugin.json
+```
+
+#### 3.5.2 各 skill 独立版本 → 仅 bump 有改动的 skill
+
+1. **检测本次改动的 skill**（对比上一个 tag，**含未提交改动**）：
    ```bash
-   # 只替换 version 行，保持 JSON 其余结构与缩进不变
-   sed -i 's/"version":[[:space:]]*"[0-9][^"]*"/"version": "<VERSION_WITHOUT_V>"/' plugins/daily-digest/.claude-plugin/plugin.json
+   PREV_TAG=$(git tag --sort=-creatordate | head -1)
+   # 已提交改动
+   git diff --name-only "$PREV_TAG" HEAD -- 'plugins/daily-digest/skills/*' \
+     | sed 's|plugins/daily-digest/skills/||;s|/.*||' | sort -u
+   # 未提交改动（working tree，会捡到 untracked 之外的所有变更）
+   git diff --name-only "$PREV_TAG" -- 'plugins/daily-digest/skills/*' \
+     | sed 's|plugins/daily-digest/skills/||;s|/.*||' | sort -u
    ```
-   （Windows Git Bash 下 `sed -i` 可用；若环境不支持，直接用编辑器手动改该行。）
+   两条命令的结果取并集，即为本次需 bump 的 skill 清单。
+   （首次发布无 tag 时，对比初始 commit：`PREV_TAG=$(git rev-list --max-parents=0 HEAD)`。
+   注意：全新 skill 若仍是 untracked，`git diff` 看不到——以 Step 2.4 的 `git status` 为准。）
 
-2. 校验改动只动了 version 行：
+2. **对每个有改动的 skill，按变更规模 bump 其 `version:` 字段**（语义与插件全局版本相同）：
+   - **PATCH**：bug 修复、文档、配置调整
+   - **MINOR**：新增功能脚本、能力扩展
+   - **MAJOR**：不兼容的工作流/接口变更
+
+   先读取该 skill 当前版本号：
    ```bash
-   git diff plugins/daily-digest/.claude-plugin/plugin.json
+   grep '^version:' "plugins/daily-digest/skills/<SKILL>/SKILL.md"
+   ```
+   再用 sed 替换为新版本号（**只改这一个 skill**，其余 skill 不动）：
+   ```bash
+   sed -i 's/^version:[[:space:]]*.*/version: "<NEW_SKILL_VERSION>"/' \
+       "plugins/daily-digest/skills/<SKILL>/SKILL.md"
    ```
 
-3. 暂存并连同 CHANGELOG 一起提交：
-   ```bash
-   git add plugins/daily-digest/.claude-plugin/plugin.json
-   git commit -m "docs: release <VERSION>"
+3. **列出本次 bump 的 skill 清单**（在下方 Summary / 完成状态中展示），例如：
    ```
+   skill 版本变更:
+     rss-monitor: 1.0.0 → 1.1.0
+     (github-monitor / tool-update-monitor 未改动，版本不变)
+   ```
+
+> 注意：`version:` 字段不会自动出现——新增 skill 时需在 frontmatter 手动加上 `version: "1.0.0"`。
+
+#### 3.5.3 暂存并提交
+
+```bash
+git add CHANGELOG.md plugins/daily-digest/.claude-plugin/plugin.json
+# 只 add 本次实际改过 version 的 skill
+git add plugins/daily-digest/skills/<CHANGED_SKILL_1>/SKILL.md plugins/daily-digest/skills/<CHANGED_SKILL_2>/SKILL.md
+git commit -m "docs: release <VERSION>"
+```
 
 ### Step 4: 创建 Tag 并推送
 
@@ -200,7 +249,8 @@ git push origin HEAD --tags
 ```
 ✅ Release <VERSION> 发布完成
    CHANGELOG.md: 已更新
-   plugin.json:  version → <VERSION_WITHOUT_V>
+   plugin.json:  version → <VERSION_WITHOUT_V>（插件全局版本）
+   SKILL.md:     仅 bump 有改动的 skill（各自独立版本，未改不动）
    Git tag:      <VERSION>
    GitHub Release: 等待 GitHub Action 自动创建
    查看: https://github.com/BingqiangZhou/Skills/actions
