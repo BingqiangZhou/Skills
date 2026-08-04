@@ -48,7 +48,10 @@ collection logic stays reusable and the report logic stays centralized.
 
 ```
 {skill_directory}/                  # This skill's directory (inside the plugin)
-  SKILL.md                        # This file
+  SKILL.md                        # This file — workflow & orchestration
+  references/
+    subagent-prompts.md           # Per-source summarization prompts (2a/2b/2c)
+    editor-prompts.md             # Article & podcast editor prompts (2d)
   scripts/
     prepare_batches.py            # Split latest_updates.json into sub-agent batches
     generate_unified_report.py    # Render the unified daily digest Markdown
@@ -75,6 +78,10 @@ collection logic stays reusable and the report logic stays centralized.
   daily-digests/YYYY-MM-DD/        # Unified output directory
     daily-digest_HH-MM.md          # Narrative report (times in CST / UTC+8)
 ```
+
+The prompt templates for sub-agents live in `references/`. Read the relevant
+file before launching that step's sub-agents — SKILL.md tells you when to read
+which one.
 
 ## Execution Steps
 
@@ -164,22 +171,21 @@ no new releases — the tool section of the report will be skipped/empty.
 If ALL three sources have zero updates, stop and inform the user that nothing
 new was found today.
 
-**CRITICAL — avoid two common sub-agent failure modes:**
+**Avoid two common sub-agent failure modes:**
 1. **Oversized input**: WeChat `full_text`, podcast `shownotes`, and GitHub
    `body_text` can be thousands of chars per item. `prepare_batches.py`
    truncates text fields so each batch stays small.
 2. **Broken output JSON**: sub-agents that write JSON via bash
-   `heredoc`/`echo`/`cat` produce malformed files (Chinese smart quotes,
-   encoding errors). The prompt below forces `json.dump()`; and the sibling
-   `merge_summaries.py` scripts tolerate any corrupt batches instead of
-   crashing.
+   `heredoc`/`echo`/`cat` produce malformed files. The prompts force
+   `json.dump()`, and the sibling `merge_summaries.py` scripts tolerate any
+   corrupt batches instead of crashing.
 
 **Launch at most 4 sub-agents in parallel** (API rate limiting).
 
 #### 2a. RSS summarization
 
-Prepare batches (this truncates `full_text`/`shownotes` to 1500 chars and
-groups by source):
+Prepare batches (truncates `full_text`/`shownotes` to 1500 chars, groups by
+source):
 
 ```bash
 cd "{skill_directory}" && python scripts/prepare_batches.py \
@@ -189,45 +195,12 @@ cd "{skill_directory}" && python scripts/prepare_batches.py \
   --prefix "rss"
 ```
 
-This prints how many batches were saved. Launch one sub-agent per batch
-(groups of 4). **Sub-Agent Prompt Template** (replace `{batch_file}` and
-`{N}`):
+Launch one sub-agent per batch (groups of 4). **Read
+`references/subagent-prompts.md` § "2a" for the exact prompt template.** Each
+sub-agent reads a `rss_batch_{N}.json` and writes
+`rss_ai_summaries_batch_{N}.json`.
 
-```
-Task: Summarize RSS articles into one Chinese sentence each.
-
-Read the file {project_root}/workspaces/daily-digest/{batch_file}.
-
-For each item, use the `full_text` field to write ONE concise Chinese
-sentence (under 100 characters) capturing the key point or takeaway, so the
-reader can decide whether to read the full article.
-
-Write the results as JSON to:
-{project_root}/workspaces/daily-digest/rss_ai_summaries_batch_{N}.json
-
-Use this exact structure:
-{
-  "summaries": [
-    {
-      "url": "the url from the input",
-      "ai_summary": "一句话中文摘要"
-    }
-  ]
-}
-
-CRITICAL - Encoding rules to avoid broken JSON:
-- You MUST write the file using Python json.dump(), NOT bash heredoc/echo/cat.
-- Do NOT use Chinese smart quotes (\u201c \u201d) in the ai_summary text —
-  use straight quotes (") or avoid quotes altogether.
-- Use ensure_ascii=False and encoding="utf-8" when writing.
-- Example:
-    import json
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-```
-
-Then merge the batches with the sibling merge script (it tolerates corrupt /
-missing files and de-duplicates by URL):
+Then merge the batches:
 
 ```bash
 cd "{skill_directory}/../rss-monitor" && python scripts/merge_summaries.py \
@@ -246,49 +219,10 @@ cd "{skill_directory}" && python scripts/prepare_batches.py \
   --prefix "github"
 ```
 
-Launch one sub-agent per batch (groups of 4). **Sub-Agent Prompt Template**
-(replace `{N}`):
-
-```
-Task: Summarize GitHub activity (merged pull requests and/or new issues) into
-one Chinese sentence each.
-
-Read the file {project_root}/workspaces/daily-digest/github_batch_{N}.json.
-
-Each entry is either a newly merged GitHub pull request (item_type="pulls") or a
-new GitHub issue (item_type="issues"). For each entry, use the `title` and
-`body_text` fields to write ONE concise Chinese sentence (under 100 characters)
-capturing the key point or purpose:
-- For a PR: what it changed or added (project name, what it does, notable detail).
-- For an issue: what the author is announcing or asking about.
-The goal is that the reader can decide whether to look into it.
-
-Write the results as JSON to:
-{project_root}/workspaces/daily-digest/github_ai_summaries_batch_{N}.json
-
-Use this exact structure:
-{
-  "summaries": [
-    {
-      "item_url": "the item_url from the input",
-      "item_number": 12345,
-      "item_type": "pulls",
-      "title": "...",
-      "ai_summary": "一句话中文摘要"
-    }
-  ]
-}
-
-CRITICAL - Encoding rules to avoid broken JSON:
-- You MUST write the file using Python json.dump(), NOT bash heredoc/echo/cat.
-- Do NOT use Chinese smart quotes (\u201c \u201d) in the ai_summary text —
-  use straight quotes (") or avoid quotes altogether.
-- Use ensure_ascii=False and encoding="utf-8" when writing.
-- Example:
-    import json
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-```
+Launch one sub-agent per batch (groups of 4). **Read
+`references/subagent-prompts.md` § "2b" for the exact prompt template.** Each
+sub-agent reads a `github_batch_{N}.json` and writes
+`github_ai_summaries_batch_{N}.json`.
 
 Then merge:
 
@@ -303,234 +237,29 @@ cd "{skill_directory}/../github-monitor" && python scripts/merge_summaries.py \
 
 Only run if the tool source has `update_count > 0`. Release notes are already
 human-readable, so there is no per-release summarization — just one overview
-pass. **Sub-Agent Prompt Template**:
-
-```
-Task: Read tool release updates and write a brief Chinese-language highlights
-note.
-
-Read the file {project_root}/workspaces/tool-update-monitor/latest_updates.json.
-
-Look at the `updates` array. Each entry has a tool name, version,
-previous_version, published_at, and a `body` (release notes). Write:
-
-1. `highlights`: 2-3 Chinese sentences. Which releases matter most? Any
-   breaking changes or notable features? A brief "should you upgrade" hint.
-2. `per_tool`: a map of tool_id -> ONE Chinese sentence (under 60 chars)
-   summarizing that tool's update.
-
-Write the results as JSON to:
-{project_root}/workspaces/daily-digest/tool_ai_highlights.json
-
-Use this exact structure:
-{
-  "highlights": "2-3 句中文总览……",
-  "per_tool": {
-    "v2rayn": "一句话要点",
-    "claude-code": "一句话要点"
-  }
-}
-
-CRITICAL - Encoding rules to avoid broken JSON:
-- You MUST write the file using Python json.dump(), NOT bash heredoc/echo/cat.
-- Do NOT use Chinese smart quotes (\u201c \u201d) in the text — use straight
-  quotes (") or avoid quotes altogether.
-- Use ensure_ascii=False and encoding="utf-8" when writing.
-- Example:
-    import json
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-```
+pass. **Read `references/subagent-prompts.md` § "2c" for the prompt.** The
+sub-agent reads `latest_updates.json` and writes `tool_ai_highlights.json`.
 
 #### 2d. RSS editor narrative — articles & podcasts separately
 
-The unified report renders each source by a style that fits its volume:
+The report renders RSS as two **independent** narrative tracks (articles and
+podcasts never cross-reference); GitHub and tools are rendered directly as
+compact lists by Step 3, so they do NOT take part in the narrative.
 
-- **RSS** is high-volume (hundreds of items) and benefits from synthesis →
-  rendered as a **narrative** produced by editor sub-agents. Within RSS,
-  **articles** (WeChat + tech blogs) and **podcasts** are summarized as two
-  INDEPENDENT narrative tracks — they never cross-reference each other.
-- **GitHub** and **工具** are low-volume and inherently structured → rendered
-  directly as a compact list by `generate_unified_report.py` from their
-  `latest_updates.json` (+ their one-line AI summaries / key notes). They do
-  NOT take part in the narrative.
+**Read `references/editor-prompts.md` in full before running this step** — it
+contains the split script, both editor prompts, and the merge script. The
+flow is:
 
-##### 2d-0. Split RSS summaries into articles / podcasts
-
-The merged `rss_ai_summaries.json` mixes all three RSS sources. Split it by
-`source` (looked up from `workspaces/rss/latest_updates.json`) so each editor
-sub-agent gets only its track. Run this inline Python:
-
-```bash
-python - <<'PY'
-import json
-from pathlib import Path
-
-base = Path("{project_root}/workspaces")
-lu = json.load(open(base / "rss/latest_updates.json", encoding="utf-8"))
-url2src = {u.get("url", "").strip(): u.get("source", "")
-           for u in lu.get("updates", [])}
-summ = json.load(open(base / "daily-digest/rss_ai_summaries.json", encoding="utf-8"))
-
-articles, podcasts = [], []
-for e in summ.get("summaries", []):
-    url = (e.get("url") or "").strip()
-    rec = {"url": url, "ai_summary": e.get("ai_summary", ""),
-           "category": e.get("category", ""), "source": url2src.get(url, "")}
-    (podcasts if rec["source"] == "podcast" else articles).append(rec)
-
-json.dump({"summaries": articles},
-          open(base / "daily-digest/rss_articles_summaries.json", "w", encoding="utf-8"),
-          ensure_ascii=False, indent=2)
-json.dump({"summaries": podcasts},
-          open(base / "daily-digest/rss_podcasts_summaries.json", "w", encoding="utf-8"),
-          ensure_ascii=False, indent=2)
-print(f"articles: {len(articles)}  podcasts: {len(podcasts)}")
-PY
-```
-
-##### 2d-1. Articles editor sub-agent
-
-Run when there are article (wechat/tech) updates. **Sub-Agent Prompt Template**:
-
-```
-Task: Act as the editor of today's ARTICLE digest (WeChat + tech blogs only;
-NO podcasts). Read the merged one-line summaries and produce a NARRATIVE report.
-
-Read this file:
-- {project_root}/workspaces/daily-digest/rss_articles_summaries.json
-
-Each entry is a one-line Chinese summary of an article. Your job:
-
-1. Cluster the items by CONTENT THEME — NOT by source. Aim for 5-8 topics.
-   Examples: "AI 应用安全攻防升温", "大模型竞速与价格战", "网络安全漏洞情报".
-
-2. For each topic write a 2-4 sentence Chinese narrative that weaves the
-   relevant items together. Prefer synthesis ("多条更新指向同一趋势…") over
-   item-by-item listing.
-
-   CRITICAL — citation style: DO NOT name media channels or outlets (no
-   「微信公众号」「The New Stack」「VentureBeat」「量子位」etc.). State the
-   CONTENT directly. You MAY keep names of people/organizations that ARE the
-   actor or subject of the news (e.g. Anthropic, Mandiant 红队, 阿里, OpenAI,
-   港科大) because they are who did the thing, not who reported it.
-   - BAD:  「The New Stack」与「量子位」报道阿里发布 Qwen3.8-Max…
-   - GOOD: 阿里发布 2.4 万亿参数 MoE 模型 Qwen3.8-Max…
-
-3. Write `overview`: 2-3 Chinese sentences capturing today's overall tone
-   and naming the ~3 main directions (articles only).
-
-4. Write `other`: 1-2 Chinese sentences gathering remaining minor / one-off
-   article items so NOTHING of substance is silently dropped.
-
-5. In each topic's `items` array, record every article you referenced
-   (url + short label). This is for audit only — it is NOT rendered.
-
-Write the results as JSON to:
-{project_root}/workspaces/daily-digest/digest_narrative_articles.json
-
-Use this exact structure:
-{
-  "overview": "2-3 句中文总览（文章）……",
-  "article_topics": [
-    {
-      "title": "话题标题",
-      "narrative": "2-4 句中文叙事，直接讲内容，不提媒体来源……",
-      "items": [
-        {"source": "rss", "url": "...", "label": "Apache NiFi 四漏洞……"}
-      ]
-    }
-  ],
-  "other": "1-2 句：零碎文章内容归拢……"
-}
-
-CRITICAL - Coverage rule: every ARTICLE with real substance must appear in
-some article_topics narrative (and its items[]) or be mentioned in `other`.
-
-CRITICAL - Encoding rules to avoid broken JSON:
-- You MUST write the file using Python json.dump(), NOT bash heredoc/echo/cat.
-- Do NOT use Chinese smart quotes in the text — use straight quotes (").
-- Use ensure_ascii=False and encoding="utf-8" when writing.
-- Write to the articles-only file shown above (NOT the shared
-  digest_narrative.json — the main flow merges the two tracks afterwards).
-```
-
-##### 2d-2. Podcasts editor sub-agent
-
-Run when there are podcast updates. **Sub-Agent Prompt Template**:
-
-```
-Task: Act as the editor of today's PODCAST digest (podcasts only; NO articles).
-Read the one-line summaries and produce a NARRATIVE report.
-
-Read this file:
-- {project_root}/workspaces/daily-digest/rss_podcasts_summaries.json
-
-Each entry is a one-line Chinese summary of a podcast episode. Your job:
-
-1. Cluster the episodes by CONTENT THEME — aim for 4-6 topics. Group by what
-   the episodes are ABOUT (e.g. "AI 与创业对谈", "财经与市场", "文化与历史",
-   "心理健康与生活"). Lifestyle / personal / true-crime episodes should be
-   bundled very briefly into one "其他" note WITHOUT elaborating sensitive
-   details — just acknowledge they exist.
-
-2. For each topic write a 2-4 sentence Chinese narrative weaving the relevant
-   episodes together. You MAY name the podcast/show when it identifies the
-   conversation (e.g. 「某播客对谈……」), but focus on the CONTENT, not on
-   who published it.
-
-3. In each topic's `items` array, record every episode you referenced
-   (url + short label). This is for audit only — it is NOT rendered.
-
-Write the results as JSON to:
-{project_root}/workspaces/daily-digest/digest_narrative_podcasts.json
-
-Use this exact structure:
-{
-  "podcast_topics": [
-    {
-      "title": "话题标题",
-      "narrative": "2-4 句中文叙事……",
-      "items": [
-        {"source": "rss", "url": "...", "label": "节目名 · 主题……"}
-      ]
-    }
-  ]
-}
-
-CRITICAL - Encoding rules to avoid broken JSON:
-- You MUST write the file using Python json.dump(), NOT bash heredoc/echo/cat.
-- Do NOT use Chinese smart quotes in the text — use straight quotes (").
-- Use ensure_ascii=False and encoding="utf-8" when writing.
-- Write to the podcasts-only file shown above (NOT the shared
-  digest_narrative.json — the main flow merges the two tracks afterwards).
-```
-
-Run 2d-1 and 2d-2 as two parallel sub-agents. They write to SEPARATE files
-(`digest_narrative_articles.json` and `digest_narrative_podcasts.json`) to
-avoid any write race. The main flow then merges them into the single
-`digest_narrative.json` consumed by Step 3:
-
-```bash
-python - <<'PY'
-import json
-from pathlib import Path
-base = Path("{project_root}/workspaces/daily-digest")
-merged = {"overview": "", "article_topics": [], "podcast_topics": [], "other": ""}
-for name in ("digest_narrative_articles.json", "digest_narrative_podcasts.json"):
-    p = base / name
-    if p.exists():
-        merged.update(json.load(open(p, encoding="utf-8")))
-json.dump(merged, open(base / "digest_narrative.json", "w", encoding="utf-8"),
-          ensure_ascii=False, indent=2)
-print("merged ->", base / "digest_narrative.json")
-PY
-```
-
-Note: the legacy `digest_highlights.json` (3-5 one-line highlights) is no
-longer produced. If one from an older run is present, the report generator
-will still use it as a *fallback overview* when `digest_narrative.json` is
-missing — but you should produce `digest_narrative.json` going forward.
+1. **Split** `rss_ai_summaries.json` into `rss_articles_summaries.json` and
+   `rss_podcasts_summaries.json` (inline Python in §2d-0).
+2. **Two parallel sub-agents** (§2d-1 articles editor, §2d-2 podcasts editor):
+   - Articles editor → `digest_narrative_articles.json`
+     (`overview` + `article_topics` + `other`; **no media-channel names**, only
+     the actors/subjects of the news; clusters 5-8 content themes).
+   - Podcasts editor → `digest_narrative_podcasts.json`
+     (`podcast_topics`; clusters 4-6 themes; bundles lifestyle/crime episodes
+     briefly without sensitive detail).
+3. **Merge** both into `digest_narrative.json` (inline Python in §merge).
 
 ### Step 3: Generate the unified digest report
 
@@ -549,16 +278,13 @@ Replace `YYYY-MM-DD` with today's date (CST) and `HH-MM` with current time.
 All flags except `-o` are optional:
 
 - `--rss-input` + `--digest-narrative` drive the **narrative** part (overview
-  + 今日重点 + 其他动态). Omit `--digest-narrative` only if Step 2d was
-  skipped/failed (the overview then degrades to a fallback string).
-- `--github-input` + `--github-summaries` drive the **GitHub compact list**
-  (one tight block per PR/issue, with its one-line AI summary when present).
-- `--tool-input` + `--tool-highlights` drive the **tool compact list**
-  (one tight block per release, with the per-tool key note when present).
-- Optional fallback flags (only consulted when `--digest-narrative` is
-  missing or empty): `--digest-highlights` (legacy), `--tool-highlights`, and
-  `--rss-insight` are stitched into a best-effort overview so the pipeline
-  never hard-fails on a summarization gap.
+  + 今日重点 + 播客精选 + 其他动态). Omit `--digest-narrative` only if Step 2d
+  was skipped/failed (the overview then degrades to a fallback string).
+- `--github-input` + `--github-summaries` drive the **GitHub compact list**.
+- `--tool-input` + `--tool-highlights` drive the **tool compact list**.
+- Optional fallback flags (only consulted when `--digest-narrative` is missing):
+  `--digest-highlights` (legacy), `--tool-highlights`, `--rss-insight` are
+  stitched into a best-effort overview so the pipeline never hard-fails.
 
 Report structure — narrative for RSS (articles & podcasts separate), compact
 lists for GitHub & tools:
@@ -575,13 +301,10 @@ lists for GitHub & tools:
 ## 🛠 工具更新           ← compact list of releases (grouped by category)
 ```
 
-Articles and podcasts are two independent narrative tracks — they never
-cross-reference. RSS has no per-item blocks (it's high-volume → synthesized).
-GitHub and tools are listed in full because they're low-volume and structured.
-The full structured data for every source remains in
-`workspaces/<source>/latest_updates.json` for on-demand follow-up — if the
-user wants detail on a specific RSS item, they can ask the agent to search
-the workspace data.
+RSS has no per-item blocks (it's high-volume → synthesized). GitHub and tools
+are listed in full because they're low-volume and structured. The full
+structured data for every source remains in
+`workspaces/<source>/latest_updates.json` for on-demand follow-up.
 
 ## Performance Notes
 
@@ -589,7 +312,7 @@ the workspace data.
   tools ~5-10s. Reusing already-collected same-day `latest_updates.json`
   skips re-collection and cuts the run to the summarization + render time.
 - AI summarization: RSS + GitHub batches at 4 sub-agents in parallel ~60s
-  each; tool highlights ~10-20s; cross-source highlights ~10-20s.
+  each; tool highlights ~10-20s; editor narratives ~60-120s each.
 - Total end-to-end (cold): ~4-6 minutes. Warm (data already collected):
   ~1-2 minutes.
 
@@ -600,6 +323,6 @@ After generating the report, inform the user:
   updates or was skipped
 - The path to the generated unified report file
 - A brief highlight: the 2-3 most interesting items across all sources (draw
-  from the cross-source highlights if generated, otherwise pick the top items)
+  from the narrative overview if generated, otherwise pick the top items)
 - Remind them they can re-run to refresh a single source by invoking that
   collector skill directly, then re-running this skill (it reuses cached data)
