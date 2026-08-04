@@ -1,28 +1,34 @@
 #!/usr/bin/env python3
 """Render the unified daily digest Markdown report.
 
-Reads the collected ``latest_updates.json`` files from the three sibling
-collector skills (rss-monitor, github-monitor, tool-update-monitor) plus the
-AI summary/highlight files produced by this skill's sub-agents, and emits ONE
-unified Markdown digest covering all three source types:
+The report mixes two presentation styles, tuned to each source's nature:
+
+- **RSS** is high-volume (hundreds of items) and benefits from synthesis, so
+  it is rendered as a **narrative**: an editor sub-agent clusters the
+  per-item summaries into 5-8 cross-cutting topic narratives plus an overview
+  and an "其他动态" roundup. No per-item blocks for RSS.
+- **GitHub** and **工具** are low-volume and inherently structured ("which
+  repo PR merged", "which tool released which version"), so they are rendered
+  as a **compact list** — one tight block per item with its AI summary/key
+  note (when available) and a link.
+
+Output shape:
 
     # 每日信息摘要 - 2026-08-04 09:30 (CST)
     > RSS: 42 条 | GitHub: 8 条 | 工具: 3 个新版本
 
-    **今日要点** ...                       (optional cross-source highlights)
+    ## 📊 今日概览                      ← editor overview (RSS-driven)
+    ## 🔥 今日重点                      ← RSS topic narratives
+    ## 📌 其他动态                      ← RSS minor-items roundup (optional)
+    ## 🔧 GitHub 动态                   ← compact list of PRs/issues
+    ## 🛠 工具更新                       ← compact list of releases
 
-    ## 📰 RSS 信息源 (42 篇)                ← wechat + tech + podcast sections
-    ## 🔧 GitHub 动态 (8 条)                ← grouped by repo, PR/issue interleaved
-    ## 🛠 工具更新 (3 个新版本)             ← grouped by category
+The underlying structured data always stays in
+``workspaces/<source>/latest_updates.json`` for on-demand follow-up.
 
-Each input flag is optional; a source with no data (or whose input flag is
-omitted) renders as a short "no new updates" line rather than a full section.
-Item numbering is continuous across the whole report.
-
-The per-source rendering logic (WeChat category + security sub-groups, tech
-categories + Hacker News, podcast by rank; GitHub PR/issue blocks; tool
-release blocks) mirrors the original per-source generate_report.py scripts so
-the unified report preserves the same grouping quality.
+If no RSS narrative payload is available (editor step skipped/failed), the
+overview degrades to a best-effort string built from whatever highlights are
+on hand, but GitHub/tool lists are always rendered from their collector data.
 """
 
 import argparse
@@ -776,14 +782,336 @@ def render_tool_section(updates_data, per_tool_map, overall_highlight, lines, in
 
 
 # ===========================================================================
-# Unified report assembly
+# Narrative rendering (the unified report's actual body)
 # ===========================================================================
 
-def generate_unified_report(rss_data, rss_summary_map, rss_insight,
-                            github_data, github_summary_map,
+def _normalize_topics(raw_topics):
+    """Turn a raw topics list into [{title, narrative}] (drops items[])."""
+    out = []
+    if not isinstance(raw_topics, list):
+        return out
+    for t in raw_topics:
+        if not isinstance(t, dict):
+            continue
+        title = (t.get("title") or "").strip()
+        narrative = (t.get("narrative") or "").strip()
+        if title or narrative:
+            out.append({"title": title, "narrative": narrative})
+    return out
+
+
+def build_narrative(narrative_data):
+    """Normalize the editor sub-agent's digest_narrative.json output.
+
+    Supports two payload shapes:
+
+    - **Split** (articles + podcasts independent): top-level ``overview``,
+      ``other``, plus ``article_topics`` and ``podcast_topics`` lists.
+    - **Legacy/flat**: top-level ``overview``, ``other``, ``topics`` list
+      (kept for backward compatibility).
+
+    Returns ``(overview, article_topics, podcast_topics, other)``. For the
+    legacy shape, all topics land in ``article_topics`` and ``podcast_topics``
+    is empty. Tolerates a missing/partial payload by returning empty values.
+    """
+    if not isinstance(narrative_data, dict):
+        return "", [], [], ""
+
+    overview = (narrative_data.get("overview") or "").strip()
+    other = (narrative_data.get("other") or "").strip()
+
+    if "article_topics" in narrative_data or "podcast_topics" in narrative_data:
+        article_topics = _normalize_topics(narrative_data.get("article_topics"))
+        podcast_topics = _normalize_topics(narrative_data.get("podcast_topics"))
+    else:
+        article_topics = _normalize_topics(narrative_data.get("topics"))
+        podcast_topics = []
+    return overview, article_topics, podcast_topics, other
+
+
+def _fallback_overview(digest_highlights_text, tool_overall, rss_insight):
+    """Best-effort overview string when no narrative payload is available.
+
+    Pulls together any cross-source highlights, tool highlights, and the RSS
+    trend insight so the degraded report still says *something* useful.
+    """
+    snippets = []
+    if digest_highlights_text:
+        snippets.append(digest_highlights_text.strip())
+    if tool_overall:
+        snippets.append(f"工具：{tool_overall.strip()}")
+    if rss_insight:
+        insight_text = (rss_insight.get("trend_insight") or "").strip()
+        if insight_text:
+            snippets.append(insight_text)
+    return "\n\n".join(snippets)
+
+
+def _render_topic_list(lines, heading, topics):
+    """Render a numbered list of topic narratives under ``heading``.
+
+    No-op when ``topics`` is empty.
+    """
+    if not topics:
+        return
+    lines.append(f"## {heading}")
+    lines.append("")
+    for i, topic in enumerate(topics, 1):
+        title = topic.get("title") or f"话题 {i}"
+        narrative = topic.get("narrative") or ""
+        lines.append(f"### {i}. {title}")
+        lines.append("")
+        lines.append(narrative if narrative else "*(暂无叙述)*")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+
+def render_narrative_body(overview, article_topics, podcast_topics, other):
+    """Render the narrative body (everything between the header and footer).
+
+    Always emits 今日概览. Then 今日重点 (article topics), 播客精选 (podcast
+    topics), and 其他动态 (only when non-empty). Article and podcast topics
+    are kept fully separate — they never cross-reference.
+    """
+    lines = []
+
+    lines.append("## 📊 今日概览")
+    lines.append("")
+    lines.append(overview if overview else "*(本轮未生成概览)*")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    _render_topic_list(lines, "🔥 今日重点", article_topics)
+    _render_topic_list(lines, "🎧 播客精选", podcast_topics)
+
+    if other:
+        lines.append("## 📌 其他动态")
+        lines.append("")
+        lines.append(other)
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    return lines
+
+
+# ===========================================================================
+# Compact list renderers for GitHub / tool (low-volume, structured sources)
+# ===========================================================================
+
+def _compact_github_item(update, index, summary_map, lines):
+    """Append one GitHub PR/issue as a tight block: title + meta + summary.
+
+    Kept denser than the legacy render_pr/render_issue: meta on one line, AI
+    summary (or short body excerpt) right under it, link last.
+    """
+    item_type = update.get("type", "issues")
+    number = update.get("item_number")
+    title = update.get("title") or "(无标题)"
+    url = update.get("html_url") or ""
+    repo = update.get("repo", "")
+    author = update.get("author") or ""
+    comments = update.get("comments", 0)
+    reactions = update.get("reactions_total", 0)
+    body_text = update.get("body_text") or ""
+    ai_summary = summary_map.get(url, "")
+
+    # Numbered title — link if we have a URL.
+    prefix = f"- **{index}.** "
+    if url:
+        lines.append(f"{prefix}[{title}]({url})")
+    else:
+        lines.append(f"{prefix}{title}")
+
+    # One-line meta: repo · type #N · author · 💬/👍
+    meta_bits = []
+    if repo:
+        meta_bits.append(f"`{repo}`")
+    if number:
+        meta_bits.append(f"{'PR' if item_type == 'pulls' else 'Issue'} #{number}")
+    if author:
+        meta_bits.append(f"@{author}")
+    extras = []
+    if comments:
+        extras.append(f"💬 {comments}")
+    if reactions:
+        extras.append(f"👍 {reactions}")
+    if extras:
+        meta_bits.append(" ".join(extras))
+    if meta_bits:
+        lines.append(f"  {' · '.join(meta_bits)}")
+
+    # Summary: prefer AI one-liner, else a short body excerpt.
+    if ai_summary:
+        lines.append(f"  {ai_summary.strip()}")
+    elif body_text:
+        lines.append(f"  {_fallback_text(body_text)}")
+
+    lines.append("")
+
+
+def _compact_tool_release(update, index, per_tool_map, lines):
+    """Append one tool release as a tight block: name `vX` + meta + key note.
+
+    Release notes bodies can be long, so in the compact view we show only the
+    AI per-tool key note (when available) + a link, not the full body.
+    """
+    name = update.get("name", "Unknown")
+    version = update.get("version", "?")
+    prev = update.get("previous_version")
+    published = fmt_cst(update.get("published_at"))
+    url = update.get("html_url", "")
+    prerelease = update.get("prerelease", False)
+    tid = update.get("tool_id", "")
+
+    ver_label = f"`v{version}`"
+    if prerelease:
+        ver_label += " *(pre-release)*"
+    lines.append(f"- **{index}.** {name} {ver_label}")
+
+    meta_bits = []
+    if prev:
+        meta_bits.append(f"from `v{prev}`")
+    if published:
+        meta_bits.append(published)
+    if meta_bits:
+        lines.append(f"  {' · '.join(meta_bits)}")
+
+    note = per_tool_map.get(tid, "")
+    if note:
+        lines.append(f"  {note.strip()}")
+    if url:
+        lines.append(f"  🔗 [{name} release]({url})")
+
+    lines.append("")
+
+
+def render_github_list(github_data, summary_map, lines):
+    """Render the GitHub section as a compact list (no repo subsections).
+
+    Items are grouped by repo with a bold repo label, but stay list-shaped.
+    Returns the number of items rendered.
+    """
+    meta = github_data.get("metadata", {})
+    updates = github_data.get("updates", [])
+    update_count = meta.get("update_count", len(updates))
+    per_repo = meta.get("per_repo") or []
+    hours = meta.get("hours", 24)
+
+    pr_count = sum(1 for u in updates if u.get("type") == "pulls")
+    issue_count = len(updates) - pr_count
+
+    lines.append(f"## 🔧 GitHub 动态（{update_count} 条）")
+    lines.append("")
+    lines.append(f"> 时间窗 {hours}h · PR {pr_count} / Issue {issue_count}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    if not updates:
+        lines.append("本轮无新的 GitHub 动态。")
+        lines.append("")
+        return 0
+
+    # Group by repo, preserving first-seen order (updates are newest-first).
+    groups = OrderedDict()
+    for u in updates:
+        groups.setdefault(u.get("repo", "unknown/unknown"), []).append(u)
+
+    multi_repo = len(groups) > 1
+    idx = 0
+    for repo_key, repo_updates in groups.items():
+        if multi_repo:
+            name = repo_display_name(repo_key, per_repo)
+            label = name if name == repo_key else f"{name}（`{repo_key}`）"
+            lines.append(f"**{label}**（{len(repo_updates)}）")
+            lines.append("")
+        for u in repo_updates:
+            idx += 1
+            _compact_github_item(u, idx, summary_map, lines)
+    return idx
+
+
+def render_tool_list(tool_data, per_tool_map, overall_highlight, lines):
+    """Render the tool section as a compact list grouped by category.
+
+    Returns the number of releases rendered.
+    """
+    meta = tool_data.get("metadata", {})
+    updates = tool_data.get("updates", [])
+    categories_order = meta.get("categories_order") or []
+    checked = meta.get("checked_count", 0)
+    errors = meta.get("error_count", 0)
+    update_count = meta.get("update_count", len(updates))
+    hours = meta.get("hours", 168)
+
+    lines.append("## 🛠 工具更新（{}）".format(
+        "基线建立" if meta.get("baseline_run") else f"{update_count} 个新版本"))
+    lines.append("")
+
+    if meta.get("baseline_run"):
+        lines.append(f"> 首次运行：已记录 {checked} 个工具当前版本作为基线，本次不报告新版本。")
+        if errors:
+            lines.append(f"> ⚠️ {errors} 个工具获取失败。")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        return 0
+
+    lines.append(f"> 检查 {checked} 个工具（约 {hours}h）· {errors} 个出错")
+    lines.append("")
+    if overall_highlight:
+        lines.append(f"**速览**：{overall_highlight}")
+        lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    if not updates:
+        lines.append("最近无新版本发布。")
+        lines.append("")
+        return 0
+
+    groups = OrderedDict()
+    for cat in categories_order:
+        groups[cat] = []
+    for u in updates:
+        cat = u.get("category") or "其他 / Other"
+        groups.setdefault(cat, []).append(u)
+
+    idx = 0
+    for cat, cat_updates in groups.items():
+        if not cat_updates:
+            continue
+        lines.append(f"**{cat}**（{len(cat_updates)}）")
+        lines.append("")
+        for u in cat_updates:
+            idx += 1
+            _compact_tool_release(u, idx, per_tool_map, lines)
+    return idx
+
+def generate_unified_report(rss_data, github_data, github_summary_map,
                             tool_data, tool_per_tool, tool_overall,
-                            digest_highlights_text):
-    """Assemble the full unified Markdown report string."""
+                            narrative_data, fallback_overview):
+    """Assemble the unified Markdown report.
+
+    Parameters
+    ----------
+    rss_data, github_data, tool_data : dict | None
+        Collector outputs. RSS feeds the narrative (when available); GitHub
+        and tool feed compact list sections rendered from their data.
+    github_summary_map : dict
+        ``{item_url: ai_summary}`` for GitHub items.
+    tool_per_tool, tool_overall : dict, str
+        Per-tool key-note map + overall highlight string for tools.
+    narrative_data : dict | None
+        The editor sub-agent's ``digest_narrative.json`` (RSS-only now).
+        Drives the overview + 今日重点 + 其他动态 sections. When absent the
+        overview degrades to ``fallback_overview``.
+    fallback_overview : str
+        Best-effort overview string used only when no narrative payload.
+    """
     now = datetime.now(CST)
     report_time = now.strftime("%Y-%m-%d %H:%M")
 
@@ -791,7 +1119,7 @@ def generate_unified_report(rss_data, rss_summary_map, rss_insight,
     lines.append(f"# 每日信息摘要 - {report_time} (CST)")
     lines.append("")
 
-    # Source-count summary line
+    # Source-count summary line (computed from collector metadata)
     rss_count = len(rss_data.get("updates", [])) if rss_data else 0
     gh_count = (github_data.get("metadata", {}).get("update_count", 0)
                 if github_data else 0)
@@ -809,23 +1137,45 @@ def generate_unified_report(rss_data, rss_summary_map, rss_insight,
         lines.append("> " + " | ".join(parts))
         lines.append("")
 
-    # Cross-source highlights
-    if digest_highlights_text:
-        lines.append("**今日要点**")
+    # --- Overview + 今日重点(文章) + 播客精选 + 其他动态 (or fallback) ---
+    overview, article_topics, podcast_topics, other = build_narrative(narrative_data)
+    has_narrative = bool(overview or article_topics or podcast_topics or other)
+
+    lines.append("## 📊 今日概览")
+    lines.append("")
+    if has_narrative and overview:
+        lines.append(overview)
+    elif fallback_overview:
+        lines.append(fallback_overview)
+    else:
+        lines.append("*(本轮未生成概览)*")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    if not has_narrative:
+        lines.append("> ⚠️ 本次未生成 RSS 话题叙事（主编步骤缺失或失败），"
+                     "如需可重跑 daily-digest 补齐。")
         lines.append("")
-        lines.append(digest_highlights_text)
+
+    _render_topic_list(lines, "🔥 今日重点", article_topics)
+    _render_topic_list(lines, "🎧 播客精选", podcast_topics)
+
+    if other:
+        lines.append("## 📌 其他动态")
+        lines.append("")
+        lines.append(other)
         lines.append("")
         lines.append("---")
         lines.append("")
 
-    index = 0
-
-    if rss_data is not None:
-        index = render_rss_section(rss_data, rss_summary_map, rss_insight, lines, index)
+    # --- GitHub: compact list (low-volume, structured) ---
     if github_data is not None:
-        index = render_github_section(github_data, github_summary_map, lines, index)
+        render_github_list(github_data, github_summary_map, lines)
+
+    # --- Tool: compact list (low-volume, structured) ---
     if tool_data is not None:
-        index = render_tool_section(tool_data, tool_per_tool, tool_overall, lines, index)
+        render_tool_list(tool_data, tool_per_tool, tool_overall, lines)
 
     lines.append(f"*报告生成时间: {report_time} CST (UTC+8)*")
     return "\n".join(lines)
@@ -833,24 +1183,24 @@ def generate_unified_report(rss_data, rss_summary_map, rss_insight,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate the unified daily digest report"
+        description="Generate the unified daily digest report (narrative-first)"
     )
     parser.add_argument("--rss-input", default=None,
                         help="RSS latest_updates.json path")
-    parser.add_argument("--rss-summaries", default=None,
-                        help="RSS ai_summaries.json path")
-    parser.add_argument("--rss-insight", default=None,
-                        help="RSS trend_insight.json path (optional)")
     parser.add_argument("--github-input", default=None,
                         help="GitHub latest_updates.json path")
     parser.add_argument("--github-summaries", default=None,
-                        help="GitHub ai_summaries.json path")
+                        help="GitHub ai_summaries.json path (for compact-list notes)")
     parser.add_argument("--tool-input", default=None,
                         help="Tool latest_updates.json path")
     parser.add_argument("--tool-highlights", default=None,
-                        help="Tool ai_highlights.json path")
+                        help="Tool ai_highlights.json path (for compact-list notes)")
+    parser.add_argument("--digest-narrative", default=None,
+                        help="digest_narrative.json path (editor sub-agent output)")
     parser.add_argument("--digest-highlights", default=None,
-                        help="Cross-source digest_highlights.json path")
+                        help="(deprecated fallback) cross-source digest_highlights.json")
+    parser.add_argument("--rss-insight", default=None,
+                        help="(fallback) RSS trend_insight.json")
     parser.add_argument("-o", "--output", required=True,
                         help="Output Markdown file path")
     args = parser.parse_args()
@@ -864,35 +1214,28 @@ def main():
               "--tool-input", file=sys.stderr)
         sys.exit(1)
 
-    # --- RSS ---
+    # --- RSS (counts + fallback insight) ---
     rss_data = None
-    rss_summary_map = {}
     rss_insight = None
     if args.rss_input:
         rss_data = load_json(args.rss_input)
         if not rss_data:
-            print(f"WARNING: cannot load RSS input {args.rss_input}; "
-                  "skipping RSS section.", file=sys.stderr)
+            print(f"WARNING: cannot load RSS input {args.rss_input}.",
+                  file=sys.stderr)
             rss_data = None
-        else:
-            if args.rss_summaries:
-                sd = load_json(args.rss_summaries)
-                if sd:
-                    rss_summary_map = build_rss_summary_map(sd)
-                    print(f"Loaded {len(rss_summary_map)} RSS AI summaries")
-            if args.rss_insight:
-                rss_insight = load_json(args.rss_insight)
-                if rss_insight:
-                    print("Loaded RSS trend insight")
+        elif args.rss_insight:
+            rss_insight = load_json(args.rss_insight)
+            if rss_insight:
+                print("Loaded RSS trend insight (fallback only)")
 
-    # --- GitHub ---
+    # --- GitHub (counts + summary map for compact list) ---
     github_data = None
     github_summary_map = {}
     if args.github_input:
         github_data = load_json(args.github_input)
         if not github_data:
-            print(f"WARNING: cannot load GitHub input {args.github_input}; "
-                  "skipping GitHub section.", file=sys.stderr)
+            print(f"WARNING: cannot load GitHub input {args.github_input}.",
+                  file=sys.stderr)
             github_data = None
         elif args.github_summaries:
             sd = load_json(args.github_summaries)
@@ -900,35 +1243,49 @@ def main():
                 github_summary_map = build_github_summary_map(sd)
                 print(f"Loaded {len(github_summary_map)} GitHub AI summaries")
 
-    # --- Tool ---
+    # --- Tool (counts + per-tool notes for compact list) ---
     tool_data = None
     tool_per_tool, tool_overall = ({}, "")
     if args.tool_input:
         tool_data = load_json(args.tool_input)
         if not tool_data:
-            print(f"WARNING: cannot load tool input {args.tool_input}; "
-                  "skipping tool section.", file=sys.stderr)
+            print(f"WARNING: cannot load tool input {args.tool_input}.",
+                  file=sys.stderr)
             tool_data = None
         elif args.tool_highlights:
             hd = load_json(args.tool_highlights)
             if hd:
                 tool_per_tool, tool_overall = build_tool_highlights(hd)
-                print(f"Loaded AI highlights for {len(tool_per_tool)} tool(s).")
+                print(f"Loaded AI highlights for {len(tool_per_tool)} tool(s)")
 
-    # --- Cross-source highlights ---
+    # --- Narrative payload (primary, RSS-driven) ---
+    narrative_data = None
+    if args.digest_narrative:
+        narrative_data = load_json(args.digest_narrative)
+        if narrative_data:
+            print("Loaded digest narrative")
+        else:
+            print("WARNING: cannot load digest narrative; will fall back.",
+                  file=sys.stderr)
+
+    # --- Legacy highlights (fallback overview only) ---
     digest_highlights_text = ""
     if args.digest_highlights:
         dh = load_json(args.digest_highlights)
         if dh:
             digest_highlights_text = dh.get("highlights", "") or ""
             if digest_highlights_text:
-                print("Loaded cross-source digest highlights")
+                print("Loaded cross-source digest highlights (fallback only)")
+
+    fallback_overview = _fallback_overview(
+        digest_highlights_text, tool_overall, rss_insight)
+    if not narrative_data and fallback_overview:
+        print("Using fallback overview (no narrative payload).")
 
     report = generate_unified_report(
-        rss_data, rss_summary_map, rss_insight,
-        github_data, github_summary_map,
+        rss_data, github_data, github_summary_map,
         tool_data, tool_per_tool, tool_overall,
-        digest_highlights_text,
+        narrative_data, fallback_overview,
     )
 
     output_path = Path(args.output)
@@ -944,7 +1301,9 @@ def main():
         rendered.append(f"GitHub({github_data.get('metadata', {}).get('update_count', 0)})")
     if tool_data is not None:
         rendered.append(f"Tool({tool_data.get('metadata', {}).get('update_count', 0)})")
-    print(f"Unified report written to {output_path} ({', '.join(rendered)})")
+    mode = "narrative" if narrative_data else "fallback"
+    print(f"Unified report written to {output_path} "
+          f"({', '.join(rendered)}, {mode})")
 
 
 if __name__ == "__main__":
