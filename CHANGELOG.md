@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.3.1 (2026-08-04)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.0...v1.3.1)**
+> 把 `workspaces/daily-digests/` 内的产物按用途分层:报告输出收进 `reports/`、采集中间件(rss / github-monitor / tool-update-monitor / daily-digest)收进 `data/`,两者对称;同时修复上轮重构引入的 `daily-digests/daily-digests` 双层路径误伤。
+>
+> 共 2 commits,其中 🔨 Refactor 2
+>
+> **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.0...v1.3.1)**
+
+### 🔨 Refactor
+
+- Daily-digests 报告输出收进 reports/ 子目录([31cdd3c](https://github.com/BingqiangZhou/Skills/commit/31cdd3c25a11c742cc0db76c2f5d6eee0b9965ca))
+- 采集中间件收进 workspaces/daily-digests/data/([9945080](https://github.com/BingqiangZhou/Skills/commit/99450805095065c4f26b6c5f35d1e2e55d578c86))
 ## v1.3.0 (2026-08-04)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.2.0...v1.3.0)**
 > 新增独立 plugin `agent-journal`——agent 每日自我回顾 skill,中文回顾配中英双语诗意收尾,无采集脚本(数据源交给 agent 自主判断);同时把顶层 `daily-digests/` 与 `journals/` 及采集中间件统一收纳到 `workspaces/` 下,形成单一运行时产物根目录。
