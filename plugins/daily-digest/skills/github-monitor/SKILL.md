@@ -1,6 +1,6 @@
 ---
 name: github-monitor
-version: "1.0.2"
+version: "1.0.3"
 description: |
   Collect and save new GitHub repository activity — newly merged pull requests
   and/or new issues — to latest_updates.json. This is the COLLECTION layer
@@ -61,7 +61,7 @@ The default `repos.json` ships two entries:
     repos.json              # Target repos + per-repo monitor/filter rules
 
 {project_root}/                # The user's current project (cwd at run time)
-  workspaces/github-monitor/          # Runtime intermediate files (gitignored)
+  workspaces/daily-digests/github-monitor/          # Runtime intermediate files (gitignored)
     .http_cache.json                  # GitHub API ETag cache
     latest_updates.json               # ← THIS skill's output (input to daily-digest)
 ```
@@ -79,7 +79,7 @@ project (the working directory at run time).
 ### Step 0: Ensure workspace directories exist
 
 ```bash
-mkdir -p "{project_root}/workspaces/github-monitor"
+mkdir -p "{project_root}/workspaces/daily-digests/github-monitor"
 ```
 
 ### Step 1: Check for new activity (merged PRs + new issues)
@@ -87,8 +87,8 @@ mkdir -p "{project_root}/workspaces/github-monitor"
 ```bash
 cd "{skill_directory}" && python scripts/check_updates.py \
   --hours 24 \
-  --output "{project_root}/workspaces/github-monitor/latest_updates.json" \
-  --cache  "{project_root}/workspaces/github-monitor/.http_cache.json"
+  --output "{project_root}/workspaces/daily-digests/github-monitor/latest_updates.json" \
+  --cache  "{project_root}/workspaces/daily-digests/github-monitor/.http_cache.json"
 ```
 
 Options:
@@ -187,10 +187,10 @@ several. A 24h window on `1c7/chinese-independent-developer` typically yields
 After collection, inform the user:
 - How many items were found (total, broken down by PR vs issue, and per repo),
   and how many were filtered out
-- The output path: `workspaces/github-monitor/latest_updates.json`
+- The output path: `workspaces/daily-digests/github-monitor/latest_updates.json`
 - To generate a unified AI-summarized daily digest, run the **daily-digest**
   skill — it consumes this file (plus the RSS and tool-update data) and
-  produces `daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md`.
+  produces `workspaces/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md`.
 - Note whether a GitHub token was used (if `update_count` is suspiciously low
   and no token was set, the API rate limit may be the cause — suggest setting
   `GITHUB_ACCESS_TOKEN`).

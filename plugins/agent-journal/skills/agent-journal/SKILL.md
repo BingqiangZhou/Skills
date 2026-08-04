@@ -1,6 +1,6 @@
 ---
 name: agent-journal
-version: "1.0.0"
+version: "1.0.1"
 description: |
   Review what was done today and produce a daily journal entry that ends with a
   bilingual (Chinese + English) poetic coda. The agent gathers the day's facts
@@ -49,7 +49,7 @@ in `references/reflection-prompts.md` govern *how to write*; this file governs
     reflection-prompts.md         # §A reflection / §B silent-day / §C bilingual coda prompts
 
 {project_root}/                    # The user's current project (cwd at run time)
-  journals/YYYY-MM-DD/            # Output directory
+  workspaces/journals/YYYY-MM-DD/  # Output directory (under workspaces/)
     journal_HH-MM.md              # The journal entry (times in CST / UTC+8)
 ```
 
@@ -65,7 +65,7 @@ project (the working directory at run time).
 ### Step 0: Ensure the output directory exists
 
 ```bash
-mkdir -p "{project_root}/journals/$(date +%Y-%m-%d)"
+mkdir -p "{project_root}/workspaces/journals/$(date +%Y-%m-%d)"
 ```
 
 ### Step 1: Reconstruct today (agent, self-directed)
@@ -111,7 +111,7 @@ contains the three prompt templates. Apply them to whatever you gathered:
 ### Step 3: Write the journal entry
 
 Author the Markdown entry directly to
-`{project_root}/journals/YYYY-MM-DD/journal_HH-MM.md` (replace `YYYY-MM-DD`
+`{project_root}/workspaces/journals/YYYY-MM-DD/journal_HH-MM.md` (replace `YYYY-MM-DD`
 with today's date in CST and `HH-MM` with the current time). Use this
 structure:
 

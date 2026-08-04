@@ -1,5 +1,7 @@
-# Unified runtime workspaces (one subdir per skill). Keep the directory itself
-# tracked via .gitkeep, but ignore all runtime contents.
+# Unified runtime workspaces: everything (collector middleware, batch/narrative
+# intermediates, and the finished daily-digests/ + journals/ outputs) lives
+# under workspaces/. Keep the directory itself tracked via .gitkeep, but
+# ignore all runtime contents.
 workspaces/*
 !workspaces/.gitkeep
 .vscode/
@@ -13,14 +15,6 @@ __pycache__/
 
 # Runtime caches that may land inside plugin references/
 .feed_list_cache.json
-
-# Unified daily digests: only keep latest day tracked
-daily-digests/*
-!daily-digests/.gitkeep
-
-# Agent daily journals: keep only the directory tracked
-journals/*
-!journals/.gitkeep
 
 # Script-generated data snapshots (regenerated on first run, not hand-curated):
 #   feeds_wechat.json — fetched weekly by rss-monitor/scripts/fetch_feed_list.py

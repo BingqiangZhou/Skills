@@ -17,8 +17,8 @@ instead of aborting the merge.
 
 Usage:
     python merge_summaries.py \\
-        --batch-dir {project_root}/workspaces/rss \\
-        --output   {project_root}/workspaces/rss/ai_summaries.json
+        --batch-dir {project_root}/workspaces/daily-digests/rss \\
+        --output   {project_root}/workspaces/daily-digests/rss/ai_summaries.json
 
 Options:
     --pattern   glob pattern for batch files

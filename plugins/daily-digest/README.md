@@ -18,7 +18,7 @@
 - **GitHub / 工具**（量小、本身是结构化的"谁更新了什么"）：直接渲染成紧凑列表，
   一条一行带链接和一句话要点。
 
-完整结构化数据仍保留在 `workspaces/<source>/latest_updates.json`，需要某条 RSS
+完整结构化数据仍保留在 `workspaces/daily-digests/<source>/latest_updates.json`，需要某条 RSS
 详情时让 agent 直接搜工作区数据即可。
 
 ## 安装
@@ -37,7 +37,7 @@
 - 「检查 GitHub 动态」「独立开发者项目更新」「阮一峰开源自荐」→ github-monitor（只采集）
 - 「检查工具更新」「版本检查」「有没有新版本」→ tool-update-monitor（只采集）
 
-三个采集 skill 单独触发时只保存数据到 `workspaces/<source>/latest_updates.json`；想生成日报请用 daily-digest，它输出到当前项目（cwd）的 `daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md`。
+三个采集 skill 单独触发时只保存数据到 `workspaces/daily-digests/<source>/latest_updates.json`；想生成日报请用 daily-digest，它输出到当前项目（cwd）的 `workspaces/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md`。
 
 ## License
 

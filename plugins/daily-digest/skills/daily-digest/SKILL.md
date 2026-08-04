@@ -1,6 +1,6 @@
 ---
 name: daily-digest
-version: "1.1.1"
+version: "1.1.2"
 description: |
   Orchestrate the three collector skills (rss-monitor, github-monitor,
   tool-update-monitor) into a single run and produce ONE unified daily digest
@@ -35,9 +35,9 @@ one unified AI-summarized Markdown digest.
 ```
 daily-digest (this skill — orchestrate + summarize + report)
   │
-  ├─ rss-monitor          → collects → workspaces/rss/latest_updates.json
-  ├─ github-monitor       → collects → workspaces/github-monitor/latest_updates.json
-  └─ tool-update-monitor  → collects → workspaces/tool-update-monitor/latest_updates.json
+  ├─ rss-monitor          → collects → workspaces/daily-digests/daily-digests/rss/latest_updates.json
+  ├─ github-monitor       → collects → workspaces/daily-digests/daily-digests/github-monitor/latest_updates.json
+  └─ tool-update-monitor  → collects → workspaces/daily-digests/daily-digests/tool-update-monitor/latest_updates.json
 ```
 
 The three collector skills are kept intentionally simple: each only fetches
@@ -66,7 +66,7 @@ collection logic stays reusable and the report logic stays centralized.
   check_updates.py
 
 {project_root}/                    # The user's current project (cwd at run time)
-  workspaces/
+  workspaces/daily-digests/        # Whole pipeline: middleware + reports
     daily-digest/                # This skill's intermediate files
       *_batch_N.json             # Batches for AI summarization
       ai_summaries_batch_N.json  # Sub-agent outputs (per source)
@@ -75,8 +75,8 @@ collection logic stays reusable and the report logic stays centralized.
       rss_podcasts_summaries.json  # Podcasts track split out
       digest_narrative.json      # Editor narrative (overview + article_topics
                                  #   + podcast_topics + other)
-  daily-digests/YYYY-MM-DD/        # Unified output directory
-    daily-digest_HH-MM.md          # Narrative report (times in CST / UTC+8)
+    YYYY-MM-DD/                  # Unified report output
+      daily-digest_HH-MM.md      # Narrative report (times in CST / UTC+8)
 ```
 
 The prompt templates for sub-agents live in `references/`. Read the relevant
@@ -94,8 +94,8 @@ at `{skill_directory}/../rss-monitor`, `/../github-monitor`, and
 ### Step 0: Ensure workspace directories exist
 
 ```bash
-mkdir -p "{project_root}/workspaces/daily-digest"
-mkdir -p "{project_root}/daily-digests/$(date +%Y-%m-%d)"
+mkdir -p "{project_root}/workspaces/daily-digests/daily-digest"
+mkdir -p "{project_root}/workspaces/daily-digests/$(date +%Y-%m-%d)"
 ```
 
 ### Step 1: Trigger collection across all sources
@@ -118,33 +118,33 @@ cd "{skill_directory}/../rss-monitor" && python scripts/fetch_feed_list.py \
 # Check all RSS sources
 cd "{skill_directory}/../rss-monitor" && python scripts/check_updates.py \
   --source all --hours 24 \
-  --output "{project_root}/workspaces/rss/latest_updates.json" \
-  --cache "{project_root}/workspaces/rss/.http_cache.json"
+  --output "{project_root}/workspaces/daily-digests/daily-digests/rss/latest_updates.json" \
+  --cache "{project_root}/workspaces/daily-digests/daily-digests/rss/.http_cache.json"
 
 # [Podcast] Resolve non-Xiaoyuzhou episode URLs to canonical links (in place)
 cd "{skill_directory}/../rss-monitor" && python scripts/resolve_xiaoyuzhou_urls.py \
-  -i "{project_root}/workspaces/rss/latest_updates.json"
+  -i "{project_root}/workspaces/daily-digests/daily-digests/rss/latest_updates.json"
 
 # [WeChat, optional] Enrich short articles — only if metadata.sources.wechat.short_text_count != 0
 cd "{skill_directory}/../rss-monitor" && python scripts/fetch_articles.py \
-  -i "{project_root}/workspaces/rss/latest_updates.json" \
-  -o "{project_root}/workspaces/rss/latest_updates.json" --delay 2.0
+  -i "{project_root}/workspaces/daily-digests/daily-digests/rss/latest_updates.json" \
+  -o "{project_root}/workspaces/daily-digests/daily-digests/rss/latest_updates.json" --delay 2.0
 ```
 
 See the rss-monitor SKILL.md for full flag details. After this step, read
-`workspaces/rss/latest_updates.json` and check `metadata.update_count`.
+`workspaces/daily-digests/daily-digests/rss/latest_updates.json` and check `metadata.update_count`.
 
 #### 1b. GitHub collection (merged PRs + new issues)
 
 ```bash
 cd "{skill_directory}/../github-monitor" && python scripts/check_updates.py \
   --hours 24 \
-  --output "{project_root}/workspaces/github-monitor/latest_updates.json" \
-  --cache  "{project_root}/workspaces/github-monitor/.http_cache.json"
+  --output "{project_root}/workspaces/daily-digests/daily-digests/github-monitor/latest_updates.json" \
+  --cache  "{project_root}/workspaces/daily-digests/daily-digests/github-monitor/.http_cache.json"
 ```
 
 `GITHUB_ACCESS_TOKEN` is honored automatically if set. After this step, read
-`workspaces/github-monitor/latest_updates.json` and check
+`workspaces/daily-digests/daily-digests/github-monitor/latest_updates.json` and check
 `metadata.update_count`.
 
 #### 1c. Tool collection (new releases)
@@ -152,9 +152,9 @@ cd "{skill_directory}/../github-monitor" && python scripts/check_updates.py \
 ```bash
 cd "{skill_directory}/../tool-update-monitor" && python scripts/check_updates.py \
   --hours 168 --workers 6 \
-  --output "{project_root}/workspaces/tool-update-monitor/latest_updates.json" \
-  --cache "{project_root}/workspaces/tool-update-monitor/.http_cache.json" \
-  --state "{project_root}/workspaces/tool-update-monitor/.last_seen.json"
+  --output "{project_root}/workspaces/daily-digests/daily-digests/tool-update-monitor/latest_updates.json" \
+  --cache "{project_root}/workspaces/daily-digests/daily-digests/tool-update-monitor/.http_cache.json" \
+  --state "{project_root}/workspaces/daily-digests/daily-digests/tool-update-monitor/.last_seen.json"
 ```
 
 `GITHUB_ACCESS_TOKEN` is honored automatically (same env var as the GitHub
@@ -162,7 +162,7 @@ monitor above). With a token the 9 GitHub-Releases-sourced tools use the
 5000/hour authenticated rate limit; without one concurrent checks can hit
 `HTTP 403` rate-limit errors. Token is optional but recommended.
 
-After this step, read `workspaces/tool-update-monitor/latest_updates.json`.
+After this step, read `workspaces/daily-digests/daily-digests/tool-update-monitor/latest_updates.json`.
 If `metadata.baseline_run` is true or `metadata.update_count` is 0, there are
 no new releases — the tool section of the report will be skipped/empty.
 
@@ -190,8 +190,8 @@ source):
 ```bash
 cd "{skill_directory}" && python scripts/prepare_batches.py \
   --source rss \
-  --input "{project_root}/workspaces/rss/latest_updates.json" \
-  --output-dir "{project_root}/workspaces/daily-digest" \
+  --input "{project_root}/workspaces/daily-digests/daily-digests/rss/latest_updates.json" \
+  --output-dir "{project_root}/workspaces/daily-digests/daily-digest" \
   --prefix "rss"
 ```
 
@@ -204,9 +204,9 @@ Then merge the batches:
 
 ```bash
 cd "{skill_directory}/../rss-monitor" && python scripts/merge_summaries.py \
-  --batch-dir "{project_root}/workspaces/daily-digest" \
+  --batch-dir "{project_root}/workspaces/daily-digests/daily-digest" \
   --pattern "rss_ai_summaries_batch_*.json" \
-  -o "{project_root}/workspaces/daily-digest/rss_ai_summaries.json"
+  -o "{project_root}/workspaces/daily-digests/daily-digest/rss_ai_summaries.json"
 ```
 
 #### 2b. GitHub summarization
@@ -214,8 +214,8 @@ cd "{skill_directory}/../rss-monitor" && python scripts/merge_summaries.py \
 ```bash
 cd "{skill_directory}" && python scripts/prepare_batches.py \
   --source github \
-  --input "{project_root}/workspaces/github-monitor/latest_updates.json" \
-  --output-dir "{project_root}/workspaces/daily-digest" \
+  --input "{project_root}/workspaces/daily-digests/daily-digests/github-monitor/latest_updates.json" \
+  --output-dir "{project_root}/workspaces/daily-digests/daily-digest" \
   --prefix "github"
 ```
 
@@ -228,9 +228,9 @@ Then merge:
 
 ```bash
 cd "{skill_directory}/../github-monitor" && python scripts/merge_summaries.py \
-  --batch-dir "{project_root}/workspaces/daily-digest" \
+  --batch-dir "{project_root}/workspaces/daily-digests/daily-digest" \
   --pattern "github_ai_summaries_batch_*.json" \
-  -o "{project_root}/workspaces/daily-digest/github_ai_summaries.json"
+  -o "{project_root}/workspaces/daily-digests/daily-digest/github_ai_summaries.json"
 ```
 
 #### 2c. Tool highlights (single sub-agent)
@@ -265,13 +265,13 @@ flow is:
 
 ```bash
 cd "{skill_directory}" && python scripts/generate_unified_report.py \
-  --rss-input   "{project_root}/workspaces/rss/latest_updates.json" \
-  --digest-narrative "{project_root}/workspaces/daily-digest/digest_narrative.json" \
-  --github-input "{project_root}/workspaces/github-monitor/latest_updates.json" \
-  --github-summaries "{project_root}/workspaces/daily-digest/github_ai_summaries.json" \
-  --tool-input "{project_root}/workspaces/tool-update-monitor/latest_updates.json" \
-  --tool-highlights "{project_root}/workspaces/daily-digest/tool_ai_highlights.json" \
-  -o "{project_root}/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md"
+  --rss-input   "{project_root}/workspaces/daily-digests/daily-digests/rss/latest_updates.json" \
+  --digest-narrative "{project_root}/workspaces/daily-digests/daily-digest/digest_narrative.json" \
+  --github-input "{project_root}/workspaces/daily-digests/daily-digests/github-monitor/latest_updates.json" \
+  --github-summaries "{project_root}/workspaces/daily-digests/daily-digest/github_ai_summaries.json" \
+  --tool-input "{project_root}/workspaces/daily-digests/daily-digests/tool-update-monitor/latest_updates.json" \
+  --tool-highlights "{project_root}/workspaces/daily-digests/daily-digest/tool_ai_highlights.json" \
+  -o "{project_root}/workspaces/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md"
 ```
 
 Replace `YYYY-MM-DD` with today's date (CST) and `HH-MM` with current time.

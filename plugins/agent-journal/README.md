@@ -4,7 +4,7 @@ Agent 每日自我回顾插件 —— 单 skill、单层、agent 自主完成全
 
 agent 自己重建当天发生了什么（看 git、看文件、回忆当前对话、必要时问
 用户），用**中文**写一段回顾，并以**中英双语**的诗意收尾，输出到
-`journals/YYYY-MM-DD/journal_HH-MM.md`。
+`workspaces/journals/YYYY-MM-DD/journal_HH-MM.md`。
 
 ## 为什么没有采集脚本
 
@@ -36,7 +36,7 @@ OpenClaw / Hermes 等任何 agent 的**定时自我回顾**。固定时间的调
 
 - 「每日回顾」「今日回顾」「写今日手记」「今天做了什么」→ agent-journal
 - 回顾主体为中文，尾声固定是一段中文 + 一段英文的**中英双语诗意收尾**
-- 输出到当前项目（cwd）的 `journals/YYYY-MM-DD/journal_HH-MM.md`
+- 输出到当前项目（cwd）的 `workspaces/journals/YYYY-MM-DD/journal_HH-MM.md`
 
 ## License
 

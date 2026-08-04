@@ -8,14 +8,14 @@ small JSON output.
 Two source schemas are supported (selected via --source):
 
   --source rss
-      Reads workspaces/rss/latest_updates.json produced by rss-monitor.
+      Reads workspaces/daily-digests/rss/latest_updates.json produced by rss-monitor.
       Items carry a ``source`` field (wechat / tech / podcast). Batches are
       grouped by source so each sub-agent handles one content type. Each entry
       keeps url, title, the per-source name field, and a truncated ``full_text``
       (or ``shownotes``).
 
   --source github
-      Reads workspaces/github-monitor/latest_updates.json produced by
+      Reads workspaces/daily-digests/github-monitor/latest_updates.json produced by
       github-monitor. Each entry carries item_type / item_number / item_url /
       title / author / repo / and a truncated ``body_text``.
 

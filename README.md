@@ -5,7 +5,7 @@
 - **采集层**（3 个 skill）：各自只负责抓取数据并保存为 `latest_updates.json`，不做总结、不出报告。
 - **日报层**（1 个 skill）：`daily-digest` 编排三个采集任务、做 AI 总结、生成一份**统一 Markdown 日报**。
 
-所有日报统一输出到 `daily-digests/YYYY-MM-DD/` 目录。
+所有日报统一输出到 `workspaces/daily-digests/YYYY-MM-DD/` 目录。
 
 ## Skills 一览
 
@@ -43,7 +43,7 @@
 - `github-monitor` — 说出「检查 GitHub 动态」「独立开发者项目更新」「阮一峰开源自荐」即可触发采集
 - `tool-update-monitor` — 说出「检查工具更新」「版本检查」「有没有新版本」即可触发采集
 
-> **插件与项目目录**：skill 的脚本和配置文件（`scripts/`、`references/`）随插件安装在插件缓存目录中，不可改动。运行时的中间文件（HTTP 缓存、AI 摘要批次）和最终日报输出会写到**你当前项目**（运行时的 cwd）下的 `workspaces/` 和 `daily-digests/` 目录。建议在专用项目里调用这些 skill，保持输出集中。
+> **插件与项目目录**：skill 的脚本和配置文件（`scripts/`、`references/`）随插件安装在插件缓存目录中，不可改动。运行时的中间文件（HTTP 缓存、AI 摘要批次）和最终日报输出会写到**你当前项目**（运行时的 cwd）下的 `workspaces/` 目录（日报在 `workspaces/daily-digests/`，agent 手记在 `workspaces/journals/`）。建议在专用项目里调用这些 skill，保持输出集中。
 
 ### 方式二：克隆仓库直接使用
 
@@ -86,15 +86,17 @@ plugins/
         scripts/  (check_updates, generate_report*)
         references/  (tools.json)
 
-daily-digests/                        # 统一日报输出目录（运行时生成，gitignored）
-  YYYY-MM-DD/
-    daily-digest_HH-MM.md             # ★ 统一日报（RSS + GitHub + 工具）
-
-workspaces/                           # 各 skill 运行时中间文件（gitignored）
-  daily-digest/                       # 日报层批次/摘要中间文件
-  rss/                                # RSS 采集产物 latest_updates.json
-  github-monitor/                     # GitHub 采集产物 latest_updates.json
-  tool-update-monitor/                # 工具采集产物 latest_updates.json
+workspaces/                           # 运行时产物（gitignored，只保留 .gitkeep）
+  daily-digests/                      # 整条 daily-digest 管线：中间件 + 报告
+    daily-digest/                     # 日报层批次/摘要中间文件
+    rss/                              # RSS 采集产物 latest_updates.json
+    github-monitor/                   # GitHub 采集产物 latest_updates.json
+    tool-update-monitor/              # 工具采集产物 latest_updates.json
+    YYYY-MM-DD/
+      daily-digest_HH-MM.md           # ★ 统一日报（RSS + GitHub + 工具）
+  journals/                           # agent-journal 产出
+    YYYY-MM-DD/
+      journal_HH-MM.md               # ★ 每日手记
 ```
 
 > 带 `*` 的脚本（`merge_summaries.py` / `generate_report.py`）保留在采集 skill 目录中以供 daily-digest 复用及向后兼容，但采集 skill 的 SKILL.md 不再驱动它们。
@@ -106,15 +108,15 @@ workspaces/                           # 各 skill 运行时中间文件（gitign
 ```
 daily-digest（日报层 · 编排）
   │
-  ├─ 触发采集 → rss-monitor/check_updates.py      → workspaces/rss/latest_updates.json
-  ├─ 触发采集 → github-monitor/check_updates.py   → workspaces/github-monitor/latest_updates.json
-  └─ 触发采集 → tool-update-monitor/check_updates.py → workspaces/tool-update-monitor/latest_updates.json
+  ├─ 触发采集 → rss-monitor/check_updates.py      → workspaces/daily-digests/rss/latest_updates.json
+  ├─ 触发采集 → github-monitor/check_updates.py   → workspaces/daily-digests/github-monitor/latest_updates.json
+  └─ 触发采集 → tool-update-monitor/check_updates.py → workspaces/daily-digests/tool-update-monitor/latest_updates.json
         │
         ▼
   AI 总结（daily-digest 编排 sub-agents + 复用兄弟 merge 脚本）
         │
         ▼
-  generate_unified_report.py  →  daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md
+  generate_unified_report.py  →  workspaces/daily-digests/YYYY-MM-DD/daily-digest_HH-MM.md
 ```
 
 ---
