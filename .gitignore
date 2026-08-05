@@ -18,7 +18,7 @@ __pycache__/
 
 # Script-generated data snapshots (regenerated on first run, not hand-curated):
 #   feeds_wechat.json — fetched weekly by rss-monitor/scripts/fetch_feed_list.py
-#   podcasts.json     — scraped from xyzrank.com by resolve_xiaoyuzhou_urls.py
+#   podcasts.json     — fetched weekly by rss-monitor/scripts/fetch_podcast_list.py
 plugins/daily-digest/skills/rss-monitor/references/feeds_wechat.json
 plugins/daily-digest/skills/rss-monitor/references/podcasts.json
 
