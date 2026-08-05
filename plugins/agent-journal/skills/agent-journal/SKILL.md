@@ -1,6 +1,6 @@
 ---
 name: agent-journal
-version: "1.0.2"
+version: "1.0.1"
 description: |
   Review what was done today and produce a daily journal entry that ends with a
   bilingual (Chinese + English) poetic coda. The agent gathers the day's facts
