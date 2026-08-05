@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.4.0 (2026-08-05)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.3...v1.4.0)**
+> 补上 rss-monitor 缺失的 `fetch_podcast_list.py`,让被 `.gitignore` 排除的 `podcasts.json` 能像 wechat 的 `feeds_wechat.json` 一样自动重建与周更。新脚本直连 xyzrank.com 的 JSON API 抓 Top-1000 播客(7 天 TTL、`--force` 强刷、抓取失败回退旧文件),输出 schema 与旧文件逐键一致、采集层零改动;同步修正 `.gitignore` 里把该文件错误归因给 `resolve_xiaoyuzhou_urls.py` 的注释,并在 SKILL.md 新增 Step 1b 让 fresh install 不再静默无播客数据。
+>
+> 共 1 commit,其中 🚀 Features 1
+>
+> **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.3...v1.4.0)**
+
+### 🚀 Features
+
+- **rss-monitor**: 补 fetch_podcast_list.py，podcasts.json 可自动重建与周更([bf31fae](https://github.com/BingqiangZhou/Skills/commit/bf31fae29bbb40ea73acce90f4fbe61654047550))
 ## v1.3.3 (2026-08-05)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.2...v1.3.3)**
 > 修复 tool-update-monitor 的 `.last_seen.json` 跨运行状态在 daily-digest 子 agent 误解析 `{project_root}` 时被指向不存在的路径,导致每次工具更新检查都被静默判定为「基线运行」、真实版本变化被吞掉的 bug。修复未动检测逻辑,而是给 `check_updates.py` 增加 state 路径可见性护栏(启动打印绝对路径与运行前已跟踪工具数、输出 `state_path`/`state_prior_count` 字段),并在 daily-digest Step 1c 加 sanity check:若 `baseline_run=true` 但 `state_prior_count=0` 且规范路径 `.last_seen.json` 非空,则停止而非继续渲染基线报告。
