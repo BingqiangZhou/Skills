@@ -778,8 +778,20 @@ def main():
     is_baseline = (not state) or args.force_baseline
     now = datetime.now(timezone.utc)
 
-    print(f"Monitoring {len(tools)} tool(s). "
+    # State-path visibility: surface the ABSOLUTE path of the state file and how
+    # many tools were already tracked there. Without this, a wrong --state path
+    # (e.g. when an orchestrator mis-resolves {project_root}) silently produces
+    # an empty state, which turns every run into a spurious "baseline" run —
+    # the state file still gets written, but to the wrong place, so the next
+    # run sees an empty state again and never detects real version changes.
+    state_path_abs = str(Path(args.state).resolve())
+    # Capture BEFORE the state-write loop mutates `state` later in main(); the
+    # output metadata needs the count as it was at the start of this run.
+    state_prior_count = len(state)
+    print(f"State file: {state_path_abs}")
+    print(f"State held {state_prior_count} tool(s) before this run. "
           f"{'BASELINE run' if is_baseline else 'Normal run (have prior state)'}.")
+    print(f"Monitoring {len(tools)} tool(s).")
 
     # Concurrency: shared cache guarded by a lock (each tool updates its own URL).
     cache_lock = threading.Lock()
@@ -874,6 +886,14 @@ def main():
             "baseline_run": is_baseline,
             "check_time": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
             "categories_order": cat_order,
+            # Diagnoses spurious baseline runs: if this baseline was produced
+            # with a --state path that previously held 0 tools but the file at
+            # that same path was non-empty beforehand, an upstream path
+            # mis-resolution (e.g. an orchestrator mis-substituting
+            # {project_root}) is almost certainly pointing --state at the wrong
+            # location.
+            "state_path": state_path_abs,
+            "state_prior_count": state_prior_count,
         },
         "updates": updates,
     }
@@ -895,7 +915,7 @@ def main():
         print("WARNING: error rate above 20% — some tools may have changed "
               "their source layout or need attention.", file=sys.stderr)
     print(f"Output: {args.output}")
-    print(f"State : {args.state}")
+    print(f"State : {state_path_abs}")
     print("=" * 60)
 
 

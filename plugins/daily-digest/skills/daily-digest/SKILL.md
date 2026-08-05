@@ -1,6 +1,6 @@
 ---
 name: daily-digest
-version: "1.1.5"
+version: "1.1.6"
 description: |
   Orchestrate the three collector skills (rss-monitor, github-monitor,
   tool-update-monitor) into a single run and produce ONE unified daily digest
@@ -169,6 +169,25 @@ monitor above). With a token the 9 GitHub-Releases-sourced tools use the
 After this step, read `workspaces/daily-digests/data/tool-update-monitor/latest_updates.json`.
 If `metadata.baseline_run` is true or `metadata.update_count` is 0, there are
 no new releases — the tool section of the report will be skipped/empty.
+
+**Sanity check for spurious baseline (important).** Tool detection is the only
+collector that persists cross-run state (`.last_seen.json`). If the
+`{project_root}` placeholder above is mis-resolved, `--state` points at a
+non-existent file, every run sees an empty state, and every run is logged as a
+"baseline run" — the report then says "工具更新（基线建立）" forever and real
+version changes are never surfaced. Guard against that:
+
+- The script prints `State file: <abs path>` and `State held N tool(s) before
+  this run.` to its transcript. `N` must be > 0 on any run that is not the
+  very first one. If you see `State held 0 tool(s)` on a run that should NOT
+  be the first, the `--state` path is wrong — STOP and fix `{project_root}`
+  before rendering the report.
+- The output JSON carries `metadata.state_path` (absolute) and
+  `metadata.state_prior_count`. If `baseline_run` is true but
+  `state_prior_count` is 0 and the canonical state file
+  `workspaces/daily-digests/data/tool-update-monitor/.last_seen.json` is
+  non-empty, the run used a wrong state path — re-run Step 1c with the correct
+  path before proceeding.
 
 ### Step 2: AI Summarization (parallel sub-agents)
 
