@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.3.3 (2026-08-05)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.2...v1.3.3)**
+> 修复 tool-update-monitor 的 `.last_seen.json` 跨运行状态在 daily-digest 子 agent 误解析 `{project_root}` 时被指向不存在的路径,导致每次工具更新检查都被静默判定为「基线运行」、真实版本变化被吞掉的 bug。修复未动检测逻辑,而是给 `check_updates.py` 增加 state 路径可见性护栏(启动打印绝对路径与运行前已跟踪工具数、输出 `state_path`/`state_prior_count` 字段),并在 daily-digest Step 1c 加 sanity check:若 `baseline_run=true` 但 `state_prior_count=0` 且规范路径 `.last_seen.json` 非空,则停止而非继续渲染基线报告。
+>
+> 共 1 commit,其中 🐛 Fixes 1
+>
+> **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.2...v1.3.3)**
+
+### 🐛 Bug Fixes
+
+- **daily-digest**: 修复工具更新永远判定为基线运行([7625168](https://github.com/BingqiangZhou/Skills/commit/7625168f8d6e278ca285ee52eb5a1cdd233f5b99))
+
 ## v1.3.2 (2026-08-04)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.1...v1.3.2)**
 > 修复 daily-digest 报告在播客主编步骤失败或产出为空时**静默丢失整个「🎧 播客精选」章节**的问题:报告生成器现在会渲染明确的章节占位与 ⚠️ 警告并打印 stderr,绝不静默丢弃;同时把脆弱的内联 heredoc 拆分/合并逻辑提炼为两个独立 CLI 脚本(`split_rss_summaries.py` / `merge_narratives.py`),后者采用非破坏性按字段合并以消除 `dict.update` 覆盖风险。
