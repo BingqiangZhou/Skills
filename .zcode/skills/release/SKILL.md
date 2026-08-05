@@ -128,24 +128,31 @@ GitHub Release 由 `.github/workflows/release.yml` 自动创建，无需本地�
 
 2. 如果**不存在**（首次），全量生成：
    ```bash
-   git cliff --tag <VERSION> -o CHANGELOG.md
+   git cliff --tag <VERSION> --unreleased -o CHANGELOG.md
    ```
 
 3. 如果**已存在**，前置插入新版本：
    ```bash
-   git cliff --tag <VERSION> --prepend CHANGELOG.md
+   git cliff --tag <VERSION> --unreleased --prepend CHANGELOG.md
    ```
 
    > ⚠️ **切勿对已存在的 CHANGELOG.md 使用 `-o`（覆盖写入）！**
    > `-o` 会用新版本内容**整文件覆盖**，丢失所有历史版本。必须用 `--prepend`
    > 将新版本插入到文件头部，保留已有版本记录。
 
+   > ⚠️ **`--unreleased` 不可省略。** git-cliff 2.13.1 在缺少 `--unreleased`
+   > （或 `-u`）时直接报 `Error: ArgumentError("'-u' or '-l' is not specified")`
+   > 中止，且**不会改动 CHANGELOG.md**。Step 2 的预览命令已自带，这里务必
+   > 同步带上，否则 `--prepend` / `-o` 都不会执行。
+
 4. **校验历史版本未丢失**（生成后必须执行）：
    ```bash
    # 统计 CHANGELOG 中的版本数，应等于 git tag 数
    echo "CHANGELOG 版本数: $(grep -c '^## v' CHANGELOG.md)"
-   echo "Git tag 数:       $(git tag --list 'v*' | wc -l)"
+   echo "Git tag 数:       $(git tag --list 'v*' | grep -c .)"
    ```
+   > 避免用 `wc -l`：在 Git Bash 下 `wc` 常被 ugrep 别名劫持而报错；改用
+   > `grep -c .` 数非空行，语义等价且无别名冲突。
    两个数字**必须相等**。若 CHANGELOG 版本数 < tag 数，说明历史被覆盖，
    立即用 `git checkout CHANGELOG.md` 恢复后重试本步。
 
