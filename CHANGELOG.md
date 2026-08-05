@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.4.1 (2026-08-05)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.4.0...v1.4.1)**
+> 三个维护性修复：补 release skill 的 git-cliff 命令（Step 3 必须 `--unreleased`、校验避开 Git Bash 下被 ugrep 劫持的 `wc -l`）、修复全 skill 审计发现的文档与事实矛盾（tool-update 的 11→13、两个 collector 漏列的 `merge_summaries.py`、`--workers` 漏文档等），并把 release skill 从单插件扩展为三层版本模型覆盖多插件（daily-digest 主插件恒等于 tag、agent-journal 等独立按改动 bump），根治 agent-journal 版本漂移。同期修正了上一轮误把零改动的 agent-journal 从 1.0.1 改成 1.0.2 的违规 bump。
+>
+> 共 3 commits，其中 🐛 Fixes 2 | 📝 Docs 1
+>
+> **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.4.0...v1.4.1)**
+
+### 🐛 Bug Fixes
+
+- **release**: Git-cliff Step 3 命令补 --unreleased，校验避开 wc -l([2d0d0ec](https://github.com/BingqiangZhou/Skills/commit/2d0d0ec27adc1b19b913c6fafe49493ca5472b75))
+- **release**: 扩展为多插件覆盖；修正 agent-journal 版本误改([fe1d868](https://github.com/BingqiangZhou/Skills/commit/fe1d868a122706ae838d5d37238d4ba7136c3138))
+
+### 📝 Documentation
+
+- 修复全 skill 审计发现的文档与事实矛盾([d1d5372](https://github.com/BingqiangZhou/Skills/commit/d1d5372a2cc9f8b715a66bd7e10409412ceecce1))
 ## v1.4.0 (2026-08-05)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.3.3...v1.4.0)**
 > 补上 rss-monitor 缺失的 `fetch_podcast_list.py`,让被 `.gitignore` 排除的 `podcasts.json` 能像 wechat 的 `feeds_wechat.json` 一样自动重建与周更。新脚本直连 xyzrank.com 的 JSON API 抓 Top-1000 播客(7 天 TTL、`--force` 强刷、抓取失败回退旧文件),输出 schema 与旧文件逐键一致、采集层零改动;同步修正 `.gitignore` 里把该文件错误归因给 `resolve_xiaoyuzhou_urls.py` 的注释,并在 SKILL.md 新增 Step 1b 让 fresh install 不再静默无播客数据。
