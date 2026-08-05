@@ -39,7 +39,9 @@ GitHub Release 由 `.github/workflows/release.yml` 自动创建，无需本地�
    ```bash
    grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' plugins/daily-digest/.claude-plugin/plugin.json | grep -o '"[0-9][^"]*"$' | tr -d '"'
    ```
-   该版本号（当前为 `1.0.0`）即作为首次发布版本号 `v1.0.0`，覆盖全部历史。
+   该版本号即作为首次发布版本号（如 plugin.json 为 `1.0.0` 则发布 `v1.0.0`，
+   覆盖全部历史）。**注意：若该版本号的 tag 已存在（极少见，说明仓库状态异常），
+   在 PATCH 末位继续 +1 直到不冲突。**
 
 2. **按变更规模递增**（参考本次待发布内容的 Step 2 分析）：
    - **PATCH（v1.0.x → v1.0.x+1）**：仅修 bug、文档、chore、配置同步等维护性变更
@@ -214,8 +216,11 @@ git diff plugins/daily-digest/.claude-plugin/plugin.json
      | sed 's|plugins/daily-digest/skills/||;s|/.*||' | sort -u
    ```
    两条命令的结果取并集，即为本次需 bump 的 skill 清单。
-   （首次发布无 tag 时，对比初始 commit：`PREV_TAG=$(git rev-list --max-parents=0 HEAD)`。
-   注意：全新 skill 若仍是 untracked，`git diff` 看不到——以 Step 2.4 的 `git status` 为准。）
+   （首次发布无 tag 时，对比初始 commit：`PREV_TAG=$(git rev-list --max-parents=0 HEAD)`。）
+   > ⚠️ **全新 skill 的盲区**：Step 0 要求工作树干净（无 untracked 文件），所以任何
+   > 新增 skill 在进入 release 流程前必然已 `git add` + commit，`git diff` 能看到它。
+   > 但仍建议把上面并集结果与 `ls plugins/daily-digest/skills/`（Step 2.4 已列）对一遍，
+   > 确保没有遗漏——尤其当本次改动跨多个 skill 时。
 
 2. **对每个有改动的 skill，按变更规模 bump 其 `version:` 字段**（语义与插件全局版本相同）：
    - **PATCH**：bug 修复、文档、配置调整

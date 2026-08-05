@@ -1,6 +1,6 @@
 ---
 name: github-monitor
-version: "1.0.5"
+version: "1.0.6"
 description: |
   Collect and save new GitHub repository activity — newly merged pull requests
   and/or new issues — to latest_updates.json. This is the COLLECTION layer
@@ -57,6 +57,7 @@ The default `repos.json` ships two entries:
   scripts/
     _common.py              # GitHub HTTP helpers (ETag, rate-limit, auth)
     check_updates.py        # Fetch merged PRs + new issues, apply filters
+    merge_summaries.py      # Merge per-batch AI summaries (reused by daily-digest)
   references/
     repos.json              # Target repos + per-repo monitor/filter rules
 

@@ -179,6 +179,9 @@ def main():
     parser.add_argument("--force", action="store_true", help="Force refresh ignoring cache")
     args = parser.parse_args()
 
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8")
+
     output_path = Path(args.output)
     cache_path = args.cache or str(output_path.parent / ".feed_list_cache.json")
 

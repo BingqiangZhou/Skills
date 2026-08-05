@@ -1,6 +1,6 @@
 ---
 name: daily-digest
-version: "1.1.6"
+version: "1.1.7"
 description: |
   Orchestrate the three collector skills (rss-monitor, github-monitor,
   tool-update-monitor) into a single run and produce ONE unified daily digest
@@ -312,7 +312,11 @@ All flags except `-o` are optional:
   renders a visible ⚠️ placeholder under 「🎧 播客精选」 instead of silently
   dropping the section — treat that as a signal to rerun Step 2d.
 - `--github-input` + `--github-summaries` drive the **GitHub compact list**.
-- `--tool-input` + `--tool-highlights` drive the **tool compact list**.
+- `--tool-input` + `--tool-highlights` drive the **tool compact list**. If
+  Step 2c was skipped (tool `update_count == 0`), `tool_ai_highlights.json`
+  won't exist — omit `--tool-highlights` (or leave it; `load_json` tolerates a
+  missing file with a WARNING and the tool section simply renders from
+  `--tool-input` alone).
 - Optional fallback flags (only consulted when `--digest-narrative` is missing):
   `--digest-highlights` (legacy), `--tool-highlights`, `--rss-insight` are
   stitched into a best-effort overview so the pipeline never hard-fails.

@@ -1,6 +1,6 @@
 ---
 name: tool-update-monitor
-version: "1.0.6"
+version: "1.0.7"
 description: |
   Collect and save new releases of developer tools and operating systems to
   latest_updates.json. This is the COLLECTION layer only: it detects new
@@ -73,7 +73,7 @@ Microsoft's release-health page. Add/remove tools in
 
 - **Baseline run** (no `.last_seen.json`, or `--force-baseline`): records the
   current version of every tool and reports **zero** new updates. This avoids
-  spamming 11 "new" entries on first use.
+  spamming 13 "new" entries on first use.
 - **Normal run**: for each tool, fetch its latest release(s); any version
   newer than the recorded one is "new". After computing, the latest version
   is written back to `.last_seen.json`. So if a tool ships 3 releases since
@@ -89,6 +89,8 @@ Microsoft's release-health page. Add/remove tools in
 - `--category NAME` — substring filter on category (e.g. `网络代理`).
 - `--tool ID` — check a single tool id (e.g. `v2rayn`).
 - `--force-baseline` — re-record current versions as baseline; report 0 new.
+- `--workers N` — concurrent workers (default: 6). Lower it if you hit GitHub
+  rate limits (the 9 GitHub-Releases-sourced tools share the same token pool).
 
 ## Execution Steps
 
@@ -143,7 +145,7 @@ Watch for the **scraped sources** in particular:
 
 ## Performance Notes
 
-- First (baseline) scan: ~5-10s (11 endpoints, 6 workers, mostly 304-friendly).
+- First (baseline) scan: ~5-10s (13 endpoints, 6 workers, mostly 304-friendly).
 - Subsequent scans with ETag cache: ~3-6s (most endpoints return 304).
 - **GitHub API authentication**: set `GITHUB_ACCESS_TOKEN` in the environment
   (same env var as github-monitor). With a token, the 9 GitHub-Releases-sourced

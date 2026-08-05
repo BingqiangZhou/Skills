@@ -1,6 +1,6 @@
 ---
 name: rss-monitor
-version: "1.2.0"
+version: "1.2.1"
 description: |
   Collect and save updates from RSS information sources (WeChat Official
   Accounts, tech blogs, Chinese podcasts). This is the COLLECTION layer only:
@@ -48,10 +48,12 @@ Three sources are supported:
     fetch_podcast_list.py          # [Podcast] Fetch Top-N podcast list from xyzrank.com (weekly cache)
     fetch_articles.py              # [WeChat, optional] Enrich short articles with full content
     resolve_xiaoyuzhou_urls.py     # [Podcast] Resolve non-XYZ episode URLs to XYZ links
+    merge_summaries.py             # Merge per-batch AI summaries (reused by daily-digest)
   references/
     feeds_wechat.json              # WeChat feed list (~395, refreshed weekly)
     feeds_tech.json                # Tech blog feed list (24 RSS + 2 HN, static)
     podcasts.json                  # Podcast list (~1000, from xyzrank.com, refreshed weekly)
+    .feed_list_cache.json          # Legacy sidecar; freshness is read from feeds_wechat.json's own metadata.fetch_time
 
 {project_root}/                    # The user's current project (cwd at run time)
   workspaces/daily-digests/data/rss/                  # Runtime intermediate files
@@ -159,7 +161,9 @@ cd "{skill_directory}" && python scripts/resolve_xiaoyuzhou_urls.py \
 
 Rarely needed — the RSS `content:encoded` from wechat2rss is usually
 comprehensive. Check `metadata.sources.wechat.short_text_count` in the output
-JSON — if it is non-zero, run this step to fetch full article content.
+JSON — if it is non-zero, run this step to fetch full article content. (This
+key only exists when `--source wechat` or `all` was run; with `--source tech`
+or `--source podcast`, skip this step.)
 
 ```bash
 cd "{skill_directory}" && python scripts/fetch_articles.py \
