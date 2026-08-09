@@ -304,20 +304,31 @@ def _compact_tool_release(update, index, per_tool_map, lines):
     """Append one tool release as a tight block: name `vX` + meta + key note.
 
     Release notes bodies can be long, so in the compact view we show only the
-    AI per-tool key note (when available) + a link, not the full body.
+    AI per-tool key note (when available); the tool name itself links to the
+    release (no separate link line).
+
+    When the entry carries a ``versions`` array (the collector collapses a
+    tool's multiple new versions into one entry), the version is rendered as a
+    range ``v{oldest} → v{newest}`` rather than a single ``v{version}``.
     """
     name = update.get("name", "Unknown")
     version = update.get("version", "?")
+    versions = update.get("versions") or []
     prev = update.get("previous_version")
     published = fmt_cst(update.get("published_at"))
     url = update.get("html_url", "")
     prerelease = update.get("prerelease", False)
     tid = update.get("tool_id", "")
 
-    ver_label = f"`v{version}`"
+    if len(versions) > 1:
+        ver_label = f"`v{versions[0]}` → `v{versions[-1]}`"
+    else:
+        ver_label = f"`v{version}`"
     if prerelease:
         ver_label += " *(pre-release)*"
-    lines.append(f"- **{index}.** {name} {ver_label}")
+    # Tool name links directly to the release; no separate 🔗 line.
+    name_label = f"[{name}]({url})" if url else name
+    lines.append(f"- **{index}.** {name_label} {ver_label}")
 
     meta_bits = []
     if prev:
@@ -330,8 +341,6 @@ def _compact_tool_release(update, index, per_tool_map, lines):
     note = per_tool_map.get(tid, "")
     if note:
         lines.append(f"  {note.strip()}")
-    if url:
-        lines.append(f"  🔗 [{name} release]({url})")
 
     lines.append("")
 
@@ -382,21 +391,87 @@ def render_github_list(github_data, summary_map, lines):
     return idx
 
 
+def _merge_tool_updates(updates):
+    """Collapse multiple entries for the same tool into one.
+
+    The collector already dedupes a tool's new versions into a single entry
+    carrying a ``versions`` array, but this also tolerates older collector
+    output where one tool appears as several entries (e.g. multiple beta tags
+    for the same version). All entries for a tool are merged into the one with
+    the highest ``version``; a ``versions`` array (oldest→newest) is added when
+    more than one distinct version is present. Order is preserved by each
+    tool's first appearance in ``updates``.
+    """
+    by_tool = OrderedDict()
+    for u in updates:
+        tid = u.get("tool_id") or u.get("name") or ""
+        if tid not in by_tool:
+            by_tool[tid] = {
+                "entries": [],
+                "versions": [],
+            }
+        by_tool[tid]["entries"].append(u)
+        v = u.get("version")
+        if v and v not in by_tool[tid]["versions"]:
+            by_tool[tid]["versions"].append(v)
+
+    merged = []
+    for tid, info in by_tool.items():
+        entries = info["entries"]
+        # Representative = highest version (ties → last seen, which keeps the
+        # newest published_at from collector ordering).
+        best = entries[0]
+        for u in entries[1:]:
+            if (u.get("version", "") > best.get("version", "")):
+                best = u
+        merged_entry = dict(best)
+        versions = info["versions"]
+        if len(versions) > 1:
+            # Collector supplies versions oldest→newest; entries are
+            # newest→oldest, so sort defensively by version tuple.
+            try:
+                versions = sorted(versions, key=_version_key)
+            except Exception:
+                pass
+            merged_entry["versions"] = versions
+            merged_entry["version"] = versions[-1]
+        else:
+            merged_entry["version"] = best.get("version")
+        merged.append(merged_entry)
+    return merged
+
+
+def _version_key(v):
+    """Comparison key for a dotted version string (ints; non-numeric → 0)."""
+    if not v:
+        return (0,)
+    parts = []
+    for p in str(v).split("."):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+
 def render_tool_list(tool_data, per_tool_map, overall_highlight, lines):
     """Render the tool section as a compact list grouped by category.
 
-    Returns the number of releases rendered.
+    Returns the number of tools rendered.
     """
     meta = tool_data.get("metadata", {})
     updates = tool_data.get("updates", [])
     categories_order = meta.get("categories_order") or []
     checked = meta.get("checked_count", 0)
     errors = meta.get("error_count", 0)
-    update_count = meta.get("update_count", len(updates))
     hours = meta.get("hours", 168)
 
+    # Collapse multiple entries per tool into one (with a versions range).
+    updates = _merge_tool_updates(updates)
+    tool_count = len(updates)
+
     lines.append("## 🛠 工具更新（{}）".format(
-        "基线建立" if meta.get("baseline_run") else f"{update_count} 个新版本"))
+        "基线建立" if meta.get("baseline_run") else f"{tool_count} 个新版本"))
     lines.append("")
 
     if meta.get("baseline_run"):
@@ -467,12 +542,19 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
     lines.append(f"# 每日信息摘要 - {report_time} (CST)")
     lines.append("")
 
-    # Source-count summary line (computed from collector metadata)
+    # Source-count summary line (computed from collector metadata). For tools,
+    # count DISTINCT tool_ids (the collector emits one entry per tool, but older
+    # output could carry several per tool — collapse to a tool count).
     rss_count = len(rss_data.get("updates", [])) if rss_data else 0
     gh_count = (github_data.get("metadata", {}).get("update_count", 0)
                 if github_data else 0)
     tool_meta = tool_data.get("metadata", {}) if tool_data else {}
-    tool_count = 0 if tool_meta.get("baseline_run") else tool_meta.get("update_count", 0)
+    if tool_meta.get("baseline_run"):
+        tool_count = 0
+    else:
+        tool_updates = tool_data.get("updates", []) if tool_data else []
+        seen = {u.get("tool_id") or u.get("name") for u in tool_updates}
+        tool_count = len(seen)
 
     parts = []
     if rss_data is not None:
