@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.5.1 (2026-08-09)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.5.0...v1.5.1)**
+> 把"今日重点"每个话题从一整段大段落改为"导语(≤40字)+要点列表(3-8 条×≤80 字)"，扫读更友好。editor prompt、merge、renderer 三层联动，带 NO INFORMATION LOSS 规则保证信息量不丢，无 bullets 时回退旧段落渲染（向后兼容）。
+>
+> 共 2 commits，其中 🚀 Features 2
+>
+
+### 🚀 Features
+
+- **daily-digest**: 今日重点改为导语+要点列表，扫读更友好([b73766d](https://github.com/BingqiangZhou/Skills/commit/b73766d486d1cf9e61e05b56cb3cdc06ca2d9076))
 ## v1.5.0 (2026-08-09)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.4.1...v1.5.0)**
 > 修复工具更新日报中"同一工具/同一版本重复出现多次"的问题：采集层按最高版本号选基线并同版本去重（OpenClaw 的 6 条 beta 合并为 1 条，且不再每轮被误标为新）；渲染层按 tool_id 折叠、支持 `v2.0 → v2.1` 版本范围显示，工具名直接内嵌发布链接。
