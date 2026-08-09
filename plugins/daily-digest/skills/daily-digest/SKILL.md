@@ -1,6 +1,6 @@
 ---
 name: daily-digest
-version: "1.1.8"
+version: "1.1.9"
 description: |
   Orchestrate the three collector skills (rss-monitor, github-monitor,
   tool-update-monitor) into a single run and produce ONE unified daily digest

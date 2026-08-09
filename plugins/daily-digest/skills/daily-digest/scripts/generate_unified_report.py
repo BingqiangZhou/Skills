@@ -136,7 +136,13 @@ def build_tool_highlights(highlights_data):
 # ===========================================================================
 
 def _normalize_topics(raw_topics):
-    """Turn a raw topics list into [{title, narrative}] (drops items[])."""
+    """Turn a raw topics list into [{title, lead, bullets, narrative}].
+
+    Drops the audit-only ``items[]``. Carries the scannable fields
+    (``lead``, ``bullets``) to the renderer; keeps the legacy ``narrative``
+    string so older editor output (one dense paragraph, no bullets) still
+    renders as a paragraph.
+    """
     out = []
     if not isinstance(raw_topics, list):
         return out
@@ -144,9 +150,23 @@ def _normalize_topics(raw_topics):
         if not isinstance(t, dict):
             continue
         title = (t.get("title") or "").strip()
+        lead = (t.get("lead") or "").strip()
         narrative = (t.get("narrative") or "").strip()
-        if title or narrative:
-            out.append({"title": title, "narrative": narrative})
+        raw_bullets = t.get("bullets")
+        bullets = []
+        if isinstance(raw_bullets, list):
+            for b in raw_bullets:
+                if isinstance(b, str):
+                    b = b.strip()
+                    if b:
+                        bullets.append(b)
+        if title or lead or bullets or narrative:
+            out.append({
+                "title": title,
+                "lead": lead,
+                "bullets": bullets,
+                "narrative": narrative,
+            })
     return out
 
 
@@ -226,10 +246,24 @@ def _render_topic_list(lines, heading, topics, missing_placeholder=None):
         lines.append("")
         for i, topic in enumerate(topics, 1):
             title = topic.get("title") or f"话题 {i}"
+            lead = topic.get("lead") or ""
+            bullets = topic.get("bullets") or []
             narrative = topic.get("narrative") or ""
             lines.append(f"### {i}. {title}")
             lines.append("")
-            lines.append(narrative if narrative else "*(暂无叙述)*")
+            if bullets:
+                # Scannable format: short lead + bullet list.
+                if lead:
+                    lines.append(lead)
+                    lines.append("")
+                for b in bullets:
+                    lines.append(f"- {b}")
+            elif narrative:
+                # Backward compat: older editor output (one dense paragraph,
+                # no bullets) renders as before.
+                lines.append(narrative)
+            else:
+                lines.append("*(暂无叙述)*")
             lines.append("")
             lines.append("---")
             lines.append("")
