@@ -209,6 +209,45 @@ def version_tuple(v):
     return tuple(parts) if parts else (0,)
 
 
+def pick_latest_release(tool, releases):
+    """Pick the latest release from a list, respecting compare_by.
+
+    GitHub returns releases ordered by created_at, NOT by version, so taking
+    releases[0] can record a lower version as the baseline than a pre-release
+    published slightly earlier (e.g. openclaw: stable 2026.7.1-2 at [0] while
+    betas 2026.7.2-beta.* exist below it). That made the betas look "new" on
+    every run. This helper picks by max version (semver) or max published_at
+    (date) so the recorded baseline is the true latest, and dedup callers can
+    pick the newest representative of a version.
+    """
+    if not releases:
+        return None
+    compare_by = tool.get("compare_by", "semver")
+    if compare_by == "date":
+        best = None
+        best_dt = None
+        for rel in releases:
+            dt = parse_iso_datetime(rel.get("published_at"))
+            if dt is None:
+                continue
+            if best_dt is None or dt > best_dt:
+                best_dt = dt
+                best = rel
+        return best or releases[0]
+    # semver: max version_tuple; ties broken by latest published_at.
+    best = None
+    best_key = None
+    for rel in releases:
+        key = (version_tuple(rel.get("version")),)
+        dt = parse_iso_datetime(rel.get("published_at"))
+        tie = dt or datetime.min.replace(tzinfo=timezone.utc)
+        cur = (key, tie)
+        if best_key is None or cur > best_key:
+            best_key = cur
+            best = rel
+    return best or releases[0]
+
+
 def parse_iso_datetime(s):
     """Parse an ISO-8601 timestamp (e.g. GitHub 'published_at' or npm time) to
     an aware datetime in UTC. Returns None on failure."""
@@ -335,7 +374,7 @@ def fetch_github(tool, cache):
     if not releases:
         return None, "no matching releases (check prerelease/tag_pattern)"
 
-    latest = releases[0]
+    latest = pick_latest_release(tool, releases)
     return {
         "latest_version": latest["version"],
         "latest_published_at": latest["published_at"],
@@ -627,15 +666,34 @@ def _compute_new_releases(tool, releases, prev):
       - compare_by='date': its published_at is after the last-seen published_at
         (falls back to version inequality if either date is missing).
       - otherwise (semver): its version tuple is greater than the last-seen one.
+
+    DEDUP: releases are first grouped by normalized version. Within a version
+    group only the newest (by published_at) representative is kept. This folds
+    cases like openclaw's v2026.7.2-beta.1..beta.7 — which all normalize to
+    2026.7.2 — into a single entry instead of seven.
     """
     prev_version = prev.get("version")
     if not prev_version:
         return []
     compare_by = tool.get("compare_by", "semver")
+
+    # Dedup by normalized version, keeping the newest release in each group.
+    by_version = {}
+    for rel in releases:
+        v = rel.get("version") or ""
+        existing = by_version.get(v)
+        if existing is None:
+            by_version[v] = rel
+            continue
+        existing_dt = parse_iso_datetime(existing.get("published_at"))
+        rel_dt = parse_iso_datetime(rel.get("published_at"))
+        if rel_dt is not None and (existing_dt is None or rel_dt > existing_dt):
+            by_version[v] = rel
+
     new_releases = []
     if compare_by == "date":
         prev_dt = parse_iso_datetime(prev.get("published_at"))
-        for rel in releases:
+        for rel in by_version.values():
             rel_dt = parse_iso_datetime(rel.get("published_at"))
             if rel_dt and prev_dt:
                 if rel_dt > prev_dt:
@@ -644,7 +702,7 @@ def _compute_new_releases(tool, releases, prev):
                 new_releases.append(rel)
     else:
         prev_tuple = version_tuple(prev_version)
-        for rel in releases:
+        for rel in by_version.values():
             if version_tuple(rel["version"]) > prev_tuple:
                 new_releases.append(rel)
     new_releases.sort(
@@ -688,7 +746,7 @@ def check_one_tool(tool, cache, state):
     # This keeps detection correct even when the API only returns a cache hit.
     if ret == "not_modified":
         cached_releases = prev.get("releases") or []
-        latest = cached_releases[0] if cached_releases else {
+        latest = pick_latest_release(tool, cached_releases) if cached_releases else {
             "version": prev.get("version"),
             "published_at": prev.get("published_at"),
         }
@@ -703,7 +761,7 @@ def check_one_tool(tool, cache, state):
                 "latest": None, "releases": None}
 
     releases = result["releases"]
-    latest = releases[0] if releases else None
+    latest = pick_latest_release(tool, releases) if releases else None
 
     return {"ok": True, "status": "ok",
             "tool": tool, "result": result,
@@ -837,21 +895,34 @@ def main():
         # On baseline runs, record current versions but emit no updates.
         if is_baseline:
             continue
-        for rel in r["new_releases"]:
-            prev = state.get(tool["id"], {})
-            updates.append({
-                "tool_id": tool["id"],
-                "name": tool["name"],
-                "category": tool["category"],
-                "source_type": tool["source_type"],
-                "version": rel["version"],
-                "previous_version": prev.get("version"),
-                "published_at": rel.get("published_at"),
-                "name_release": rel.get("name"),
-                "body": rel.get("body") or "",
-                "html_url": rel.get("html_url"),
-                "prerelease": rel.get("prerelease", False),
-            })
+        new_rels = r["new_releases"]
+        if not new_rels:
+            continue
+        # _compute_new_releases already deduped by version (newest→oldest),
+        # so new_rels holds the tool's DISTINCT new versions. Collapse them
+        # into ONE entry per tool: representative = newest version; a `versions`
+        # array (oldest→newest) is added only when more than one distinct
+        # version is new, so the renderer can show a range like
+        # `v2.0` → `v2.1` instead of N separate blocks.
+        prev = state.get(tool["id"], {})
+        rep = new_rels[0]
+        all_versions = [rel.get("version", "") for rel in new_rels]
+        entry = {
+            "tool_id": tool["id"],
+            "name": tool["name"],
+            "category": tool["category"],
+            "source_type": tool["source_type"],
+            "version": rep["version"],
+            "previous_version": prev.get("version"),
+            "published_at": rep.get("published_at"),
+            "name_release": rep.get("name"),
+            "body": rep.get("body") or "",
+            "html_url": rep.get("html_url"),
+            "prerelease": rep.get("prerelease", False),
+        }
+        if len(all_versions) > 1:
+            entry["versions"] = list(reversed(all_versions))  # oldest→newest
+        updates.append(entry)
 
     # Update last-seen state: record the latest version + the release snapshot
     # for every tool that produced a result this run (even on baseline). The
