@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.5.0 (2026-08-09)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.4.1...v1.5.0)**
+> 修复工具更新日报中"同一工具/同一版本重复出现多次"的问题：采集层按最高版本号选基线并同版本去重（OpenClaw 的 6 条 beta 合并为 1 条，且不再每轮被误标为新）；渲染层按 tool_id 折叠、支持 `v2.0 → v2.1` 版本范围显示，工具名直接内嵌发布链接。
+>
+> 共 2 commits，其中 🐛 Fixes 2
+>
+
+### 🐛 Bug Fixes
+
+- **daily-digest**: 工具更新同工具/同版本去重并折叠，名称内嵌发布链接([309ed64](https://github.com/BingqiangZhou/Skills/commit/309ed64009af368cc946eb46f21a840fa93029a6))
 ## v1.4.1 (2026-08-05)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.4.0...v1.4.1)**
 > 三个维护性修复：补 release skill 的 git-cliff 命令（Step 3 必须 `--unreleased`、校验避开 Git Bash 下被 ugrep 劫持的 `wc -l`）、修复全 skill 审计发现的文档与事实矛盾（tool-update 的 11→13、两个 collector 漏列的 `merge_summaries.py`、`--workers` 漏文档等），并把 release skill 从单插件扩展为三层版本模型覆盖多插件（daily-digest 主插件恒等于 tag、agent-journal 等独立按改动 bump），根治 agent-journal 版本漂移。同期修正了上一轮误把零改动的 agent-journal 从 1.0.1 改成 1.0.2 的违规 bump。
