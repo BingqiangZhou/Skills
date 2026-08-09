@@ -38,7 +38,13 @@ def load_json_safe(path):
 
 
 def _normalize_topics(raw):
-    """Coerce a topics list into [{title, narrative}], dropping items[]."""
+    """Coerce a topics list into [{title, lead, bullets, narrative}].
+
+    Drops the audit-only `items[]`. Carries the new scannable fields
+    (`lead`, `bullets`) through to the renderer; also keeps the legacy
+    `narrative` string so old editor output still renders as a paragraph
+    when `bullets` is absent.
+    """
     out = []
     if not isinstance(raw, list):
         return out
@@ -46,9 +52,23 @@ def _normalize_topics(raw):
         if not isinstance(t, dict):
             continue
         title = (t.get("title") or "").strip()
+        lead = (t.get("lead") or "").strip()
         narrative = (t.get("narrative") or "").strip()
-        if title or narrative:
-            out.append({"title": title, "narrative": narrative})
+        raw_bullets = t.get("bullets")
+        bullets = []
+        if isinstance(raw_bullets, list):
+            for b in raw_bullets:
+                if isinstance(b, str):
+                    b = b.strip()
+                    if b:
+                        bullets.append(b)
+        if title or lead or bullets or narrative:
+            out.append({
+                "title": title,
+                "lead": lead,
+                "bullets": bullets,
+                "narrative": narrative,
+            })
     return out
 
 

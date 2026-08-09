@@ -53,9 +53,22 @@ Each entry is a one-line Chinese summary of an article. Your job:
 1. Cluster the items by CONTENT THEME — NOT by source. Aim for 5-8 topics.
    Examples: "AI 应用安全攻防升温", "大模型竞速与价格战", "网络安全漏洞情报".
 
-2. For each topic write a 2-4 sentence Chinese narrative that weaves the
-   relevant items together. Prefer synthesis ("多条更新指向同一趋势…") over
-   item-by-item listing.
+2. For each topic produce a SCANNABLE structure (NOT a dense paragraph):
+   - `lead`: ONE short Chinese sentence (≤40 字) pointing out the core
+     trend of this topic (e.g. "多条更新指向 AI Agent 成为攻防新前线。").
+   - `bullets`: 3-8 independent bullets, each ≤80 字 and stating ONE fact.
+     Scale the count to the topic's information density — low-density
+     topics stay at 3-5 crisp bullets, but fact-dense topics (e.g. a
+     vulnerability roundup with many CVEs/products) MAY use 6-8 so that
+     NO substantive item is dropped. You MAY bold the leading actor/
+     subject for quick scanning, e.g. "**OpenAI** Astra 达网络安全能力
+     阈值，被迫放缓发布". Each bullet should stand alone — do not chain
+     facts with commas into a run-on.
+
+   CRITICAL — NO INFORMATION LOSS: the bullet list must collectively
+   cover every substantive fact the old single-paragraph narrative would
+   have. If you find yourself exceeding 8 bullets, the topic is too broad
+   — split it into two topics instead of silently dropping facts.
 
    CRITICAL — citation style: DO NOT name media channels or outlets (no
    「微信公众号」「The New Stack」「VentureBeat」「量子位」etc.). State the
@@ -83,7 +96,11 @@ Use this exact structure:
   "article_topics": [
     {
       "title": "话题标题",
-      "narrative": "2-4 句中文叙事，直接讲内容，不提媒体来源……",
+      "lead": "一句话导语（≤40字），点出该话题核心趋势",
+      "bullets": [
+        "**主体** 事实（≤50字一条）",
+        "**主体** 事实（≤50字一条）"
+      ],
       "items": [
         {"source": "rss", "url": "...", "label": "Apache NiFi 四漏洞……"}
       ]
@@ -125,10 +142,21 @@ Each entry is a one-line Chinese summary of a podcast episode. Your job:
    bundled very briefly into one "其他" note WITHOUT elaborating sensitive
    details — just acknowledge they exist.
 
-2. For each topic write a 2-4 sentence Chinese narrative weaving the relevant
-   episodes together. You MAY name the podcast/show when it identifies the
-   conversation (e.g. 「某播客对谈……」), but focus on the CONTENT, not on
-   who published it.
+2. For each topic produce a SCANNABLE structure (NOT a dense paragraph):
+   - `lead`: ONE short Chinese sentence (≤40 字) pointing out the core
+     theme of this topic.
+   - `bullets`: 3-8 independent bullets, each ≤80 字 and stating ONE fact.
+     Scale the count to the topic's information density — low-density
+     topics stay at 3-5 crisp bullets, fact-dense ones MAY use 6-8 so that
+     NO substantive item is dropped. You MAY bold the leading subject for
+     quick scanning. You MAY name the podcast/show when it identifies the
+     conversation (e.g. 「某播客对谈……」), but focus on the CONTENT, not on
+     who published it. Each bullet should stand alone — do not chain facts
+     with commas into a run-on.
+
+   CRITICAL — NO INFORMATION LOSS: the bullet list must collectively cover
+   every substantive point. If exceeding 8 bullets, split into two topics
+   rather than dropping facts.
 
 3. In each topic's `items` array, record every episode you referenced
    (url + short label). This is for audit only — it is NOT rendered.
@@ -141,7 +169,11 @@ Use this exact structure:
   "podcast_topics": [
     {
       "title": "话题标题",
-      "narrative": "2-4 句中文叙事……",
+      "lead": "一句话导语（≤40字），点出该话题核心主题",
+      "bullets": [
+        "**主体** 事实（≤50字一条）",
+        "**主体** 事实（≤50字一条）"
+      ],
       "items": [
         {"source": "rss", "url": "...", "label": "节目名 · 主题……"}
       ]
