@@ -17,6 +17,7 @@ parsing). Dependency-free: Python standard library only.
 """
 
 import argparse
+import html
 import json
 import os
 import random
@@ -365,7 +366,9 @@ def fetch_github(tool, cache):
             "tag": tag,
             "published_at": rel.get("published_at") or rel.get("created_at"),
             "name": rel.get("name") or tag,
-            "body": rel.get("body") or "",
+            # Some releases (e.g. VS Code) put only a link to the real notes
+            # in the body — follow it and extract the page text.
+            "body": _enrich_url_only_body(rel.get("body") or "", cache),
             "html_url": rel.get("html_url") or
                 f"https://github.com/{repo}/releases/tag/{tag}",
             "prerelease": bool(rel.get("prerelease")),
@@ -382,10 +385,42 @@ def fetch_github(tool, cache):
     }, new_cache
 
 
+def _fetch_github_release_body(repo, version, cache):
+    """Fetch the release notes body for one version from a GitHub repo.
+
+    Enriches an npm-sourced tool whose changelog lives on GitHub (e.g. Claude
+    Code: version detected via npm, notes on anthropics/claude-code releases).
+    Tries both ``v{version}`` and ``{version}`` tag forms — npm tags lack the
+    ``v`` prefix GitHub releases often use. Returns the body text, or '' if the
+    release / tag is not found (non-fatal — the tool still reports the version).
+    """
+    token = os.environ.get("GITHUB_ACCESS_TOKEN")
+    for tag in (f"v{version}", version):
+        url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+        try:
+            rbody, rstatus, _ = fetch_url_with_retry(
+                url, cache=cache, accept="application/vnd.github+json",
+                user_agent="tool-update-monitor/1.0", bearer_token=token,
+            )
+        except Exception:
+            continue
+        if not rbody or rstatus == 304:
+            continue
+        try:
+            data = json.loads(rbody)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        notes = (data.get("body") or "").strip()
+        if notes:
+            return notes
+    return ""
+
+
 def fetch_npm(tool, cache):
     """Fetch the latest version of an npm package from the registry. Returns
-    (result_dict, status_str). npm has no per-release changelog, so body is
-    empty and html_url points at the package page."""
+    (result_dict, status_str). npm has no per-release changelog; when
+    ``changelog_repo`` is set, the release notes are pulled from that GitHub
+    repo's release for the same version."""
     pkg = tool["package"]
     url = NPM_API.format(pkg=pkg)
     link = tool.get("link_url") or f"https://www.npmjs.com/package/{pkg}"
@@ -406,6 +441,12 @@ def fetch_npm(tool, cache):
     time_map = data.get("time") or {}
     published_at = time_map.get(latest)
 
+    # npm carries no changelog; pull notes from GitHub if a repo is configured.
+    notes_body = ""
+    changelog_repo = tool.get("changelog_repo")
+    if changelog_repo:
+        notes_body = _fetch_github_release_body(changelog_repo, latest, cache)
+
     return {
         "latest_version": latest,
         "latest_published_at": published_at,
@@ -414,17 +455,89 @@ def fetch_npm(tool, cache):
             "tag": latest,
             "published_at": published_at,
             "name": f"{pkg}@{latest}",
-            "body": "",
+            "body": notes_body,
             "html_url": link,
             "prerelease": False,
         }],
     }, new_cache
 
 
+def _html_block_to_text(html_fragment, max_chars=2000):
+    """Best-effort convert an HTML changelog fragment to readable text.
+
+    Mirrors what GitHub release notes already give us pre-formatted: bullets
+    for <li>, line breaks at block boundaries, tags stripped, entities
+    unescaped. Used by fetch_html_changelog to fill a release ``body`` from a
+    scraped page (which otherwise carries no notes at all, so the AI
+    highlights used to say "no details provided").
+    """
+    s = html_fragment
+    # drop non-content blocks wholesale (script/style/svg + page chrome)
+    s = re.sub(r"<(script|style|svg|nav|header|footer|aside|noscript)\b[^>]*>.*?</\1>",
+               " ", s, flags=re.S | re.I)
+    # block-level closes → newline; <li> → bullet
+    s = re.sub(r"</(p|div|li|h[1-6]|ul|ol|article|section|tr)>", "\n", s, flags=re.I)
+    s = re.sub(r"<li\b[^>]*>", "\n- ", s, flags=re.I)
+    s = re.sub(r"<br\s*/?>", "\n", s, flags=re.I)
+    # strip remaining tags, unescape entities
+    s = re.sub(r"<[^>]+>", "", s)
+    s = html.unescape(s)
+    # collapse inline whitespace, drop blank lines
+    lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in s.splitlines()]
+    lines = [ln for ln in lines if ln]
+    s = "\n".join(lines)
+    if len(s) > max_chars:
+        s = s[:max_chars].rsplit("\n", 1)[0] + "\n…"
+    return s.strip()
+
+
+def _looks_like_url_only(s):
+    """If `s` is just a single http(s) URL (optionally wrapped as a markdown
+    link `[txt](url)`), return the bare URL; otherwise None. Used to detect
+    GitHub releases whose body is only a pointer to the real notes page
+    (e.g. VS Code: body = 'https://code.visualstudio.com/updates/v1_133')."""
+    s = (s or "").strip()
+    if not s:
+        return None
+    m = re.fullmatch(r"\[[^\]]*\]\((https?://\S+)\)", s, re.I)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r"https?://\S+", s, re.I):
+        return s
+    return None
+
+
+def _enrich_url_only_body(body, cache):
+    """Follow a URL-only release body and extract the linked page's text.
+
+    Some GitHub releases (VS Code is the canonical case) put nothing but a
+    link to the official update notes in the release body, so the AI
+    highlights used to say "release 未附明细". When the body is just such a
+    URL, fetch it and convert the page to text so the real changes are
+    summarized. On any failure, return the original body unchanged.
+    """
+    url = _looks_like_url_only(body)
+    if not url:
+        return body
+    try:
+        page_html, status, _ = fetch_url_with_retry(url, cache=cache)
+    except Exception:
+        return body
+    if not page_html or status == 304:
+        return body
+    # Start at the first content landmark to skip nav/header chrome.
+    low = page_html.lower()
+    landmarks = [low.find(t) for t in ("<h1", "<main", "<article")]
+    start = min((p for p in landmarks if p >= 0), default=0)
+    extracted = _html_block_to_text(page_html[start:])
+    return extracted or body
+
+
 def fetch_html_changelog(tool, cache):
-    """Fetch an HTML changelog page and scrape the top version with a regex.
-    Best-effort: if the page is JS-rendered and the regex finds nothing, the
-    tool is recorded as an error and the rest of the run continues."""
+    """Fetch an HTML changelog page and scrape the top version (and its notes)
+    with a regex. Best-effort: if the page is JS-rendered and the regex finds
+    nothing, the tool is recorded as an error and the rest of the run
+    continues."""
     url = tool["url"]
     version_re = re.compile(tool["version_regex"])
     date_re = re.compile(tool.get("date_regex", "")) if tool.get("date_regex") else None
@@ -438,6 +551,20 @@ def fetch_html_changelog(tool, cache):
     if not m:
         return None, "version not found in HTML (JS-rendered?)"
     version = m.group(1) if m.groups() else m.group(0)
+
+    # Scrape this version's changelog notes. Prefer the <article> wrapper when
+    # present (a clean content boundary — the next version panel's header UI
+    # lives OUTSIDE the article, so it never bleeds in). Fall back to the text
+    # between this version marker and the next one for pages without <article>.
+    block_start = m.end()
+    art_m = re.search(r"<article\b[^>]*>(.*?)</article>",
+                      body[block_start:block_start + 8000], re.S | re.I)
+    if art_m:
+        release_notes = _html_block_to_text(art_m.group(1))
+    else:
+        next_m = version_re.search(body, block_start)
+        block_end = next_m.start() if next_m else min(len(body), block_start + 6000)
+        release_notes = _html_block_to_text(body[block_start:block_end])
 
     published_at = None
     if date_re:
@@ -456,7 +583,7 @@ def fetch_html_changelog(tool, cache):
             "published_at": published_at,
             "name": (tool.get("display_name", "Release v{version}")
                      .replace("{version}", version)),
-            "body": "",
+            "body": release_notes,
             "html_url": tool.get("link_url") or url,
             "prerelease": False,
         }],

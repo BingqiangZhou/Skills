@@ -284,19 +284,15 @@ def _render_topic_list(lines, heading, topics, missing_placeholder=None):
 # ===========================================================================
 
 def _compact_github_item(update, index, summary_map, lines):
-    """Append one GitHub PR/issue as a tight block: title + meta + summary.
+    """Append one GitHub PR/issue as a tight block: title + summary.
 
-    Kept denser than the legacy render_pr/render_issue: meta on one line, AI
-    summary (or short body excerpt) right under it, link last.
+    No meta line — the title link already carries the repo + number, and for
+    the self-promotion issues / project-list PRs that dominate this feed the
+    author / reactions are noise rather than signal. The block is just the
+    linked title followed by the AI summary (or a short body excerpt).
     """
-    item_type = update.get("type", "issues")
-    number = update.get("item_number")
     title = update.get("title") or "(无标题)"
     url = update.get("html_url") or ""
-    repo = update.get("repo", "")
-    author = update.get("author") or ""
-    comments = update.get("comments", 0)
-    reactions = update.get("reactions_total", 0)
     body_text = update.get("body_text") or ""
     ai_summary = summary_map.get(url, "")
 
@@ -306,24 +302,6 @@ def _compact_github_item(update, index, summary_map, lines):
         lines.append(f"{prefix}[{title}]({url})")
     else:
         lines.append(f"{prefix}{title}")
-
-    # One-line meta: repo · type #N · author · 💬/👍
-    meta_bits = []
-    if repo:
-        meta_bits.append(f"`{repo}`")
-    if number:
-        meta_bits.append(f"{'PR' if item_type == 'pulls' else 'Issue'} #{number}")
-    if author:
-        meta_bits.append(f"@{author}")
-    extras = []
-    if comments:
-        extras.append(f"💬 {comments}")
-    if reactions:
-        extras.append(f"👍 {reactions}")
-    if extras:
-        meta_bits.append(" ".join(extras))
-    if meta_bits:
-        lines.append(f"  {' · '.join(meta_bits)}")
 
     # Summary: prefer AI one-liner, else a short body excerpt.
     if ai_summary:

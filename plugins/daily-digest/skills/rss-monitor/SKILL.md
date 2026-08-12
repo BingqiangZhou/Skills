@@ -1,6 +1,6 @@
 ---
 name: rss-monitor
-version: "1.2.1"
+version: "1.3.0"
 description: |
   Collect and save updates from RSS information sources (WeChat Official
   Accounts, tech blogs, Chinese podcasts). This is the COLLECTION layer only:
@@ -32,7 +32,7 @@ Three sources are supported:
 
 | Source | Feeds | Content |
 |--------|-------|---------|
-| **WeChat** (微信公众号) | ~395 via Wechat2RSS | Security (安全), Dev (开发), Other (其他), User-submitted (用户提交) |
+| **WeChat** (微信公众号 + 博客) | ~294 via BestBlogs | Curated by subscribers: 人工智能, 软件编程, 商业科技, 媒体资讯, 产品设计 |
 | **Tech** (科技博客) | ~24 RSS + 2 Hacker News | AI/ML, 芯片硬件, 云计算, 开源, 网络安全, 综合科技 |
 | **Podcast** (播客) | ~1000 (RSS + Xiaoyuzhou) | Chinese podcasts ranked by xyzrank.com |
 
@@ -44,16 +44,15 @@ Three sources are supported:
   scripts/
     _common.py                     # Shared HTTP/RSS/HTML/cache helpers
     check_updates.py               # Unified checker: --source wechat|tech|podcast|all
-    fetch_feed_list.py             # [WeChat] Fetch feed list from GitHub (weekly cache)
+    fetch_feed_list.py             # [WeChat] Fetch BestBlogs article feed list (weekly cache)
     fetch_podcast_list.py          # [Podcast] Fetch Top-N podcast list from xyzrank.com (weekly cache)
     fetch_articles.py              # [WeChat, optional] Enrich short articles with full content
     resolve_xiaoyuzhou_urls.py     # [Podcast] Resolve non-XYZ episode URLs to XYZ links
     merge_summaries.py             # Merge per-batch AI summaries (reused by daily-digest)
   references/
-    feeds_wechat.json              # WeChat feed list (~395, refreshed weekly)
+    feeds_wechat.json              # WeChat/blog feed list (~294, from BestBlogs API, refreshed weekly)
     feeds_tech.json                # Tech blog feed list (24 RSS + 2 HN, static)
     podcasts.json                  # Podcast list (~1000, from xyzrank.com, refreshed weekly)
-    .feed_list_cache.json          # Legacy sidecar; freshness is read from feeds_wechat.json's own metadata.fetch_time
 
 {project_root}/                    # The user's current project (cwd at run time)
   workspaces/daily-digests/data/rss/                  # Runtime intermediate files
@@ -82,12 +81,26 @@ mkdir -p "{project_root}/workspaces/daily-digests/data/rss"
 Only run if `references/feeds_wechat.json` is missing or older than 7 days.
 Freshness is determined from `feeds_wechat.json`'s own `metadata.fetch_time`.
 
+The list comes from the **BestBlogs** public API
+(`/api/proxy/sources/discover?sortBy=subscribers`), filtered to ARTICLE sources
+in the tech-focused categories (人工智能 / 软件编程 / 商业科技 / 媒体资讯 /
+产品设计) whose `url` is itself a real RSS/Atom feed address. Homepage-only
+entries (e.g. github.blog) are dropped because `check_updates.py` cannot
+autodiscover a feed from them. Entries are ordered by subscribers, so the
+hottest 公众号 (字节跳动技术团队, 腾讯技术工程, 阿里云开发者, DeepSeek, 智谱,
+MiniMax, 通义实验室 …) are polled first.
+
 ```bash
 cd "{skill_directory}" && python scripts/fetch_feed_list.py \
   --output "{skill_directory}/references/feeds_wechat.json"
 ```
 
-Options: `--force` to force refresh regardless of cache age.
+Options:
+- `--force` to force refresh regardless of cache age.
+- `--categories A,B,…` to override the category enum keys kept (e.g.
+  `Artificial_Intelligence,Programming_Technology`).
+- `--all-categories` to keep every ARTICLE category (drops only the
+  non-ARTICLE and homepage-only entries).
 
 ### Step 1b: [Podcast] Refresh the podcast list (only if stale)
 
@@ -185,7 +198,7 @@ Options:
 - **Podcast domain groups use intra-domain concurrency** (auto: 8 for large
   groups like xyzfm.space/ximalaya, 1 for small); tune with
   `--podcast-domain-workers`, lower it if a feed proxy starts rate-limiting.
-- Full cold scan (395 wechat + 26 tech + 1000 podcast): ~20-25 min
+- Full cold scan (294 wechat + 26 tech + 1000 podcast): ~20-25 min
   (dominated by the 1000-podcast long tail). A/B measured ~2.2x speedup vs
   the old serial-domain model on a 100-feed podcast sample.
 - Subsequent scans (ETag cached, most feeds 304): ~1-3 min
