@@ -17,6 +17,7 @@ parsing). Dependency-free: Python standard library only.
 """
 
 import argparse
+import html
 import json
 import os
 import random
@@ -421,10 +422,39 @@ def fetch_npm(tool, cache):
     }, new_cache
 
 
+def _html_block_to_text(html_fragment, max_chars=2000):
+    """Best-effort convert an HTML changelog fragment to readable text.
+
+    Mirrors what GitHub release notes already give us pre-formatted: bullets
+    for <li>, line breaks at block boundaries, tags stripped, entities
+    unescaped. Used by fetch_html_changelog to fill a release ``body`` from a
+    scraped page (which otherwise carries no notes at all, so the AI
+    highlights used to say "no details provided").
+    """
+    s = html_fragment
+    # drop script/style/svg blocks wholesale
+    s = re.sub(r"<(script|style|svg)\b[^>]*>.*?</\1>", " ", s, flags=re.S | re.I)
+    # block-level closes → newline; <li> → bullet
+    s = re.sub(r"</(p|div|li|h[1-6]|ul|ol|article|section|tr)>", "\n", s, flags=re.I)
+    s = re.sub(r"<li\b[^>]*>", "\n- ", s, flags=re.I)
+    s = re.sub(r"<br\s*/?>", "\n", s, flags=re.I)
+    # strip remaining tags, unescape entities
+    s = re.sub(r"<[^>]+>", "", s)
+    s = html.unescape(s)
+    # collapse inline whitespace, drop blank lines
+    lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in s.splitlines()]
+    lines = [ln for ln in lines if ln]
+    s = "\n".join(lines)
+    if len(s) > max_chars:
+        s = s[:max_chars].rsplit("\n", 1)[0] + "\n…"
+    return s.strip()
+
+
 def fetch_html_changelog(tool, cache):
-    """Fetch an HTML changelog page and scrape the top version with a regex.
-    Best-effort: if the page is JS-rendered and the regex finds nothing, the
-    tool is recorded as an error and the rest of the run continues."""
+    """Fetch an HTML changelog page and scrape the top version (and its notes)
+    with a regex. Best-effort: if the page is JS-rendered and the regex finds
+    nothing, the tool is recorded as an error and the rest of the run
+    continues."""
     url = tool["url"]
     version_re = re.compile(tool["version_regex"])
     date_re = re.compile(tool.get("date_regex", "")) if tool.get("date_regex") else None
@@ -438,6 +468,15 @@ def fetch_html_changelog(tool, cache):
     if not m:
         return None, "version not found in HTML (JS-rendered?)"
     version = m.group(1) if m.groups() else m.group(0)
+
+    # Scrape this version's changelog notes: text from this version's marker up
+    # to the NEXT version marker (each release block follows the "<display>
+    # vX.Y.Z" heading on these pages). Fills what used to be an empty body, so
+    # the AI highlights can summarize real changes instead of "no details".
+    block_start = m.end()
+    next_m = version_re.search(body, block_start)
+    block_end = next_m.start() if next_m else min(len(body), block_start + 6000)
+    release_notes = _html_block_to_text(body[block_start:block_end])
 
     published_at = None
     if date_re:
@@ -456,7 +495,7 @@ def fetch_html_changelog(tool, cache):
             "published_at": published_at,
             "name": (tool.get("display_name", "Release v{version}")
                      .replace("{version}", version)),
-            "body": "",
+            "body": release_notes,
             "html_url": tool.get("link_url") or url,
             "prerelease": False,
         }],
