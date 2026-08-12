@@ -72,6 +72,29 @@ def _normalize_topics(raw):
     return out
 
 
+def _warn_unscannable(track, topics):
+    """Warn about topics that fell back to a narrative paragraph.
+
+    A topic carrying ``narrative`` but no ``bullets`` means the editor
+    ignored the scannable (lead + bullets) format; the renderer will then
+    silently fall back to the dense paragraph. Surface each such topic so
+    the orchestrator can rerun that editor instead of shipping an
+    unscannable report. Returns the count of unscannable topics.
+    """
+    count = 0
+    for t in topics:
+        if not t.get("bullets") and t.get("narrative"):
+            count += 1
+            title = t.get("title") or "(untitled)"
+            print(
+                f"WARNING: {track} topic \"{title}\" has narrative but no "
+                f"bullets — editor likely ignored scannable format; consider "
+                f"rerunning step 2d.",
+                file=sys.stderr,
+            )
+    return count
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Merge digest_narrative_articles.json + "
@@ -108,10 +131,15 @@ def main():
     with open(out, "w", encoding="utf-8") as f:
         json.dump(merged, f, ensure_ascii=False, indent=2)
 
+    n_art_bad = _warn_unscannable("article", merged["article_topics"])
+    n_pod_bad = _warn_unscannable("podcast", merged["podcast_topics"])
+
     print(f"merged -> {out}")
     print(f"  overview: {'yes' if merged['overview'] else 'no'}")
-    print(f"  article_topics: {len(merged['article_topics'])}")
-    print(f"  podcast_topics: {len(merged['podcast_topics'])}")
+    print(f"  article_topics: {len(merged['article_topics'])}"
+          + (f" ({n_art_bad} unscannable)" if n_art_bad else ""))
+    print(f"  podcast_topics: {len(merged['podcast_topics'])}"
+          + (f" ({n_pod_bad} unscannable)" if n_pod_bad else ""))
     print(f"  other: {'yes' if merged['other'] else 'no'}")
 
 

@@ -1,8 +1,9 @@
 # Editor Sub-Agent Prompts (Step 2d)
 
 The editor sub-agents turn the per-source one-line summaries into the report's
-**narrative**. SKILL.md explains *when* to run them; copy the prompts verbatim
-from here, substituting `{project_root}`.
+**scannable topic structure** (a short lead + bullet list per topic — NEVER a
+dense paragraph). SKILL.md explains *when* to run them; copy the prompts
+verbatim from here, substituting `{project_root}`.
 
 Articles (WeChat + tech blogs) and podcasts are two **independent** narrative
 tracks — they never cross-reference each other.
@@ -43,7 +44,8 @@ Run when there are article (wechat/tech) updates. Reads
 
 ```
 Task: Act as the editor of today's ARTICLE digest (WeChat + tech blogs only;
-NO podcasts). Read the merged one-line summaries and produce a NARRATIVE report.
+NO podcasts). Read the merged one-line summaries and produce a SCANNABLE,
+bullet-first digest (every topic = lead + bullets, NEVER a dense paragraph).
 
 Read this file:
 - {project_root}/workspaces/daily-digests/data/daily-digest/rss_articles_summaries.json
@@ -53,10 +55,12 @@ Each entry is a one-line Chinese summary of an article. Your job:
 1. Cluster the items by CONTENT THEME — NOT by source. Aim for 5-8 topics.
    Examples: "AI 应用安全攻防升温", "大模型竞速与价格战", "网络安全漏洞情报".
 
-2. For each topic produce a SCANNABLE structure (NOT a dense paragraph):
+2. For each topic produce a SCANNABLE structure. The ONLY acceptable
+   per-topic shape is `lead` + `bullets` — you MUST NOT emit a `narrative`
+   string field:
    - `lead`: ONE short Chinese sentence (≤40 字) pointing out the core
      trend of this topic (e.g. "多条更新指向 AI Agent 成为攻防新前线。").
-   - `bullets`: 3-8 independent bullets, each ≤80 字 and stating ONE fact.
+   - `bullets`: 3-8 independent bullets, each ≤60 字 and stating ONE fact.
      Scale the count to the topic's information density — low-density
      topics stay at 3-5 crisp bullets, but fact-dense topics (e.g. a
      vulnerability roundup with many CVEs/products) MAY use 6-8 so that
@@ -98,8 +102,8 @@ Use this exact structure:
       "title": "话题标题",
       "lead": "一句话导语（≤40字），点出该话题核心趋势",
       "bullets": [
-        "**主体** 事实（≤50字一条）",
-        "**主体** 事实（≤50字一条）"
+        "**主体** 事实（≤60字一条，必填）",
+        "**主体** 事实（≤60字一条，必填）"
       ],
       "items": [
         {"source": "rss", "url": "...", "label": "Apache NiFi 四漏洞……"}
@@ -129,7 +133,8 @@ writes `digest_narrative_podcasts.json`.
 
 ```
 Task: Act as the editor of today's PODCAST digest (podcasts only; NO articles).
-Read the one-line summaries and produce a NARRATIVE report.
+Read the one-line summaries and produce a SCANNABLE, bullet-first digest
+(every topic = lead + bullets, NEVER a dense paragraph).
 
 Read this file:
 - {project_root}/workspaces/daily-digests/data/daily-digest/rss_podcasts_summaries.json
@@ -142,10 +147,12 @@ Each entry is a one-line Chinese summary of a podcast episode. Your job:
    bundled very briefly into one "其他" note WITHOUT elaborating sensitive
    details — just acknowledge they exist.
 
-2. For each topic produce a SCANNABLE structure (NOT a dense paragraph):
+2. For each topic produce a SCANNABLE structure. The ONLY acceptable
+   per-topic shape is `lead` + `bullets` — you MUST NOT emit a `narrative`
+   string field:
    - `lead`: ONE short Chinese sentence (≤40 字) pointing out the core
      theme of this topic.
-   - `bullets`: 3-8 independent bullets, each ≤80 字 and stating ONE fact.
+   - `bullets`: 3-8 independent bullets, each ≤60 字 and stating ONE fact.
      Scale the count to the topic's information density — low-density
      topics stay at 3-5 crisp bullets, fact-dense ones MAY use 6-8 so that
      NO substantive item is dropped. You MAY bold the leading subject for
@@ -171,8 +178,8 @@ Use this exact structure:
       "title": "话题标题",
       "lead": "一句话导语（≤40字），点出该话题核心主题",
       "bullets": [
-        "**主体** 事实（≤50字一条）",
-        "**主体** 事实（≤50字一条）"
+        "**主体** 事实（≤60字一条，必填）",
+        "**主体** 事实（≤60字一条，必填）"
       ],
       "items": [
         {"source": "rss", "url": "...", "label": "节目名 · 主题……"}
