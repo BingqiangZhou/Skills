@@ -366,7 +366,9 @@ def fetch_github(tool, cache):
             "tag": tag,
             "published_at": rel.get("published_at") or rel.get("created_at"),
             "name": rel.get("name") or tag,
-            "body": rel.get("body") or "",
+            # Some releases (e.g. VS Code) put only a link to the real notes
+            # in the body — follow it and extract the page text.
+            "body": _enrich_url_only_body(rel.get("body") or "", cache),
             "html_url": rel.get("html_url") or
                 f"https://github.com/{repo}/releases/tag/{tag}",
             "prerelease": bool(rel.get("prerelease")),
@@ -432,8 +434,9 @@ def _html_block_to_text(html_fragment, max_chars=2000):
     highlights used to say "no details provided").
     """
     s = html_fragment
-    # drop script/style/svg blocks wholesale
-    s = re.sub(r"<(script|style|svg)\b[^>]*>.*?</\1>", " ", s, flags=re.S | re.I)
+    # drop non-content blocks wholesale (script/style/svg + page chrome)
+    s = re.sub(r"<(script|style|svg|nav|header|footer|aside|noscript)\b[^>]*>.*?</\1>",
+               " ", s, flags=re.S | re.I)
     # block-level closes → newline; <li> → bullet
     s = re.sub(r"</(p|div|li|h[1-6]|ul|ol|article|section|tr)>", "\n", s, flags=re.I)
     s = re.sub(r"<li\b[^>]*>", "\n- ", s, flags=re.I)
@@ -448,6 +451,48 @@ def _html_block_to_text(html_fragment, max_chars=2000):
     if len(s) > max_chars:
         s = s[:max_chars].rsplit("\n", 1)[0] + "\n…"
     return s.strip()
+
+
+def _looks_like_url_only(s):
+    """If `s` is just a single http(s) URL (optionally wrapped as a markdown
+    link `[txt](url)`), return the bare URL; otherwise None. Used to detect
+    GitHub releases whose body is only a pointer to the real notes page
+    (e.g. VS Code: body = 'https://code.visualstudio.com/updates/v1_133')."""
+    s = (s or "").strip()
+    if not s:
+        return None
+    m = re.fullmatch(r"\[[^\]]*\]\((https?://\S+)\)", s, re.I)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r"https?://\S+", s, re.I):
+        return s
+    return None
+
+
+def _enrich_url_only_body(body, cache):
+    """Follow a URL-only release body and extract the linked page's text.
+
+    Some GitHub releases (VS Code is the canonical case) put nothing but a
+    link to the official update notes in the release body, so the AI
+    highlights used to say "release 未附明细". When the body is just such a
+    URL, fetch it and convert the page to text so the real changes are
+    summarized. On any failure, return the original body unchanged.
+    """
+    url = _looks_like_url_only(body)
+    if not url:
+        return body
+    try:
+        page_html, status, _ = fetch_url_with_retry(url, cache=cache)
+    except Exception:
+        return body
+    if not page_html or status == 304:
+        return body
+    # Start at the first content landmark to skip nav/header chrome.
+    low = page_html.lower()
+    landmarks = [low.find(t) for t in ("<h1", "<main", "<article")]
+    start = min((p for p in landmarks if p >= 0), default=0)
+    extracted = _html_block_to_text(page_html[start:])
+    return extracted or body
 
 
 def fetch_html_changelog(tool, cache):
