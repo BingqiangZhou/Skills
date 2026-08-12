@@ -385,10 +385,42 @@ def fetch_github(tool, cache):
     }, new_cache
 
 
+def _fetch_github_release_body(repo, version, cache):
+    """Fetch the release notes body for one version from a GitHub repo.
+
+    Enriches an npm-sourced tool whose changelog lives on GitHub (e.g. Claude
+    Code: version detected via npm, notes on anthropics/claude-code releases).
+    Tries both ``v{version}`` and ``{version}`` tag forms — npm tags lack the
+    ``v`` prefix GitHub releases often use. Returns the body text, or '' if the
+    release / tag is not found (non-fatal — the tool still reports the version).
+    """
+    token = os.environ.get("GITHUB_ACCESS_TOKEN")
+    for tag in (f"v{version}", version):
+        url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+        try:
+            rbody, rstatus, _ = fetch_url_with_retry(
+                url, cache=cache, accept="application/vnd.github+json",
+                user_agent="tool-update-monitor/1.0", bearer_token=token,
+            )
+        except Exception:
+            continue
+        if not rbody or rstatus == 304:
+            continue
+        try:
+            data = json.loads(rbody)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        notes = (data.get("body") or "").strip()
+        if notes:
+            return notes
+    return ""
+
+
 def fetch_npm(tool, cache):
     """Fetch the latest version of an npm package from the registry. Returns
-    (result_dict, status_str). npm has no per-release changelog, so body is
-    empty and html_url points at the package page."""
+    (result_dict, status_str). npm has no per-release changelog; when
+    ``changelog_repo`` is set, the release notes are pulled from that GitHub
+    repo's release for the same version."""
     pkg = tool["package"]
     url = NPM_API.format(pkg=pkg)
     link = tool.get("link_url") or f"https://www.npmjs.com/package/{pkg}"
@@ -409,6 +441,12 @@ def fetch_npm(tool, cache):
     time_map = data.get("time") or {}
     published_at = time_map.get(latest)
 
+    # npm carries no changelog; pull notes from GitHub if a repo is configured.
+    notes_body = ""
+    changelog_repo = tool.get("changelog_repo")
+    if changelog_repo:
+        notes_body = _fetch_github_release_body(changelog_repo, latest, cache)
+
     return {
         "latest_version": latest,
         "latest_published_at": published_at,
@@ -417,7 +455,7 @@ def fetch_npm(tool, cache):
             "tag": latest,
             "published_at": published_at,
             "name": f"{pkg}@{latest}",
-            "body": "",
+            "body": notes_body,
             "html_url": link,
             "prerelease": False,
         }],
@@ -514,14 +552,19 @@ def fetch_html_changelog(tool, cache):
         return None, "version not found in HTML (JS-rendered?)"
     version = m.group(1) if m.groups() else m.group(0)
 
-    # Scrape this version's changelog notes: text from this version's marker up
-    # to the NEXT version marker (each release block follows the "<display>
-    # vX.Y.Z" heading on these pages). Fills what used to be an empty body, so
-    # the AI highlights can summarize real changes instead of "no details".
+    # Scrape this version's changelog notes. Prefer the <article> wrapper when
+    # present (a clean content boundary — the next version panel's header UI
+    # lives OUTSIDE the article, so it never bleeds in). Fall back to the text
+    # between this version marker and the next one for pages without <article>.
     block_start = m.end()
-    next_m = version_re.search(body, block_start)
-    block_end = next_m.start() if next_m else min(len(body), block_start + 6000)
-    release_notes = _html_block_to_text(body[block_start:block_end])
+    art_m = re.search(r"<article\b[^>]*>(.*?)</article>",
+                      body[block_start:block_start + 8000], re.S | re.I)
+    if art_m:
+        release_notes = _html_block_to_text(art_m.group(1))
+    else:
+        next_m = version_re.search(body, block_start)
+        block_end = next_m.start() if next_m else min(len(body), block_start + 6000)
+        release_notes = _html_block_to_text(body[block_start:block_end])
 
     published_at = None
     if date_re:

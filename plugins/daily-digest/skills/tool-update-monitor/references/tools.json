@@ -32,6 +32,7 @@
       "category": "AI 编码代理 / AI Coding Agents",
       "source_type": "npm",
       "package": "@anthropic-ai/claude-code",
+      "changelog_repo": "anthropics/claude-code",
       "link_url": "https://github.com/anthropics/claude-code/releases"
     },
     {
