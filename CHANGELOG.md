@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.6.0 (2026-08-12)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.5.2...v1.6.0)**
+<!-- AI_SUMMARY -->
+> 本次发布聚焦信息源质量与 changelog 获取能力：公众号源从 tttmr/Wechat2RSS（低质安全源为主）切换为 BestBlogs API 精选的 294 条高质量技术/AI 源；tool-update-monitor 全面优化 release notes 获取（html 正文提取、GitHub URL-body 自动跟随、article 标签去噪音、npm 源 changelog_repo 跨源补充）；daily-digest GitHub 动态条目精简为标题+摘要。
+>
+> 共 6 commits，其中 🚀 Features 4 | 🐛 Fixes 1
+
+### 🚀 Features
+
+- **rss-monitor**: 公众号源切换为 BestBlogs API，替换 ttttmr/Wechat2RSS([9156a92](https://github.com/BingqiangZhou/Skills/commit/9156a920c0e23499e26d43591e5df7d349dc56b8))
+- **tool-update-monitor**: Html_changelog 源提取版本正文填入 release body([c55b74d](https://github.com/BingqiangZhou/Skills/commit/c55b74d1172b597c718971f72435474c8741ad89))
+- **tool-update-monitor**: GitHub release body 仅链接时跟随抓取正文([420247b](https://github.com/BingqiangZhou/Skills/commit/420247b70840e69ebc0f148e9bff4e5105a6d4c0))
+- **tool-update-monitor**: Html_changelog 用 article 标签去噪音；npm 源支持 changelog_repo([8a459b5](https://github.com/BingqiangZhou/Skills/commit/8a459b50d9c840ba95389e9945ba7f062c98983c))
+
+### 🐛 Bug Fixes
+
+- **daily-digest**: GitHub 动态条目精简显示，去掉 meta 行([b3a8a87](https://github.com/BingqiangZhou/Skills/commit/b3a8a878b28b9d6487f2be8f1a0bf05375786184))
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 ## v1.5.2 (2026-08-12)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.5.1...v1.5.2)**
 > 修复资讯/播客总结未按要点列表渲染的问题：上一版（v1.5.1）虽要求 editor 输出 lead+bullets，但 prompt 全链路的 "narrative" 措辞诱导子智能体仍输出整段文字、渲染器静默回退。本次将软建议强化为硬约束（MUST NOT emit narrative field）、统一 bullets 字数（80/50→60），并在 merge 阶段对"有 narrative 无 bullets"的回退情况发出可见告警。真实 306 条 RSS 全流程验证：editor 产出 8+8 话题全部含 bullets、报告 125 条要点列表。
