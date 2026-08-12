@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.5.2 (2026-08-12)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.5.1...v1.5.2)**
+> 修复资讯/播客总结未按要点列表渲染的问题：上一版（v1.5.1）虽要求 editor 输出 lead+bullets，但 prompt 全链路的 "narrative" 措辞诱导子智能体仍输出整段文字、渲染器静默回退。本次将软建议强化为硬约束（MUST NOT emit narrative field）、统一 bullets 字数（80/50→60），并在 merge 阶段对"有 narrative 无 bullets"的回退情况发出可见告警。真实 306 条 RSS 全流程验证：editor 产出 8+8 话题全部含 bullets、报告 125 条要点列表。
+>
+> 共 1 commit，其中 🐛 Fixes 1
+>
+
+### 🐛 Bug Fixes
+
+- **daily-digest**: 资讯/播客总结改为要点列表，修复 editor 不产出 bullets([85a87a0](https://github.com/BingqiangZhou/Skills/commit/85a87a0597e9ad98932165db9bfb3eb9422863dc))
 ## v1.5.1 (2026-08-09)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.5.0...v1.5.1)**
 > 把"今日重点"每个话题从一整段大段落改为"导语(≤40字)+要点列表(3-8 条×≤80 字)"，扫读更友好。editor prompt、merge、renderer 三层联动，带 NO INFORMATION LOSS 规则保证信息量不丢，无 bullets 时回退旧段落渲染（向后兼容）。
