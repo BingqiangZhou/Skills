@@ -85,8 +85,10 @@ Each entry is a one-line Chinese summary of an article. Your job:
 3. Write `overview`: 2-3 Chinese sentences capturing today's overall tone
    and naming the ~3 main directions (articles only).
 
-4. Write `other`: 1-2 Chinese sentences gathering remaining minor / one-off
-   article items so NOTHING of substance is silently dropped.
+4. Write `other`: an ARRAY of short bullets (strings), one per remaining
+   minor / one-off article item, each ≤80字 with a **加粗主体** lead. Group
+   only tightly-related items into one bullet so NOTHING of substance is
+   silently dropped. MUST be an array — NEVER a single sentence/paragraph.
 
 5. In each topic's `items` array, record every article you referenced
    (url + short label). This is for audit only — it is NOT rendered.
@@ -110,7 +112,10 @@ Use this exact structure:
       ]
     }
   ],
-  "other": "1-2 句：零碎文章内容归拢……"
+  "other": [
+    "**主体** 事实（≤80字）",
+    "**主体** 事实（≤80字）"
+  ]
 }
 
 CRITICAL - Coverage rule: every ARTICLE with real substance must appear in

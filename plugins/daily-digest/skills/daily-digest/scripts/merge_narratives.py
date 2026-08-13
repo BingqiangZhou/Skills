@@ -95,6 +95,28 @@ def _warn_unscannable(track, topics):
     return count
 
 
+def _normalize_other(raw):
+    """Coerce the ``other`` roundup into a list of bullet strings.
+
+    The editor is asked to emit ``other`` as an array of short bullets; a
+    list is kept (empties stripped). A legacy/non-compliant string is
+    returned as-is so the renderer's paragraph safety net still works —
+    ``main()`` then warns so the silent fallback stays visible.
+    """
+    if isinstance(raw, list):
+        out = []
+        for b in raw:
+            if isinstance(b, str):
+                b = b.strip()
+                if b:
+                    out.append(b)
+        return out
+    if isinstance(raw, str):
+        s = raw.strip()
+        return s if s else ""
+    return ""
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Merge digest_narrative_articles.json + "
@@ -123,7 +145,7 @@ def main():
         "overview": (articles.get("overview") or "").strip(),
         "article_topics": _normalize_topics(articles.get("article_topics")),
         "podcast_topics": _normalize_topics(podcasts.get("podcast_topics")),
-        "other": (articles.get("other") or "").strip(),
+        "other": _normalize_other(articles.get("other")),
     }
 
     out = Path(args.output)
@@ -133,6 +155,11 @@ def main():
 
     n_art_bad = _warn_unscannable("article", merged["article_topics"])
     n_pod_bad = _warn_unscannable("podcast", merged["podcast_topics"])
+    other_unscannable = isinstance(merged["other"], str) and bool(merged["other"])
+    if other_unscannable:
+        print("WARNING: `other` is a paragraph, not a bullet array — "
+              "editor did not comply; consider rerunning step 2d.",
+              file=sys.stderr)
 
     print(f"merged -> {out}")
     print(f"  overview: {'yes' if merged['overview'] else 'no'}")
@@ -140,7 +167,12 @@ def main():
           + (f" ({n_art_bad} unscannable)" if n_art_bad else ""))
     print(f"  podcast_topics: {len(merged['podcast_topics'])}"
           + (f" ({n_pod_bad} unscannable)" if n_pod_bad else ""))
-    print(f"  other: {'yes' if merged['other'] else 'no'}")
+    if isinstance(merged["other"], list):
+        print(f"  other: {len(merged['other'])} bullets")
+    elif merged["other"]:
+        print("  other: (paragraph, unscannable)")
+    else:
+        print("  other: no")
 
 
 if __name__ == "__main__":

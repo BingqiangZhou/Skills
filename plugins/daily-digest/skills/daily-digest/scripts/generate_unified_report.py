@@ -182,13 +182,23 @@ def build_narrative(narrative_data):
 
     Returns ``(overview, article_topics, podcast_topics, other)``. For the
     legacy shape, all topics land in ``article_topics`` and ``podcast_topics``
-    is empty. Tolerates a missing/partial payload by returning empty values.
+    is empty. ``other`` is a list of bullet strings when the editor complied
+    with the scannable format, else a legacy paragraph string (or "").
+    Tolerates a missing/partial payload by returning empty values.
     """
     if not isinstance(narrative_data, dict):
         return "", [], [], ""
 
     overview = (narrative_data.get("overview") or "").strip()
-    other = (narrative_data.get("other") or "").strip()
+    raw_other = narrative_data.get("other")
+    if isinstance(raw_other, list):
+        # Scannable format: a list of bullet strings.
+        other = [b.strip() for b in raw_other
+                 if isinstance(b, str) and b.strip()]
+    elif isinstance(raw_other, str):
+        other = raw_other.strip()
+    else:
+        other = ""
 
     if "article_topics" in narrative_data or "podcast_topics" in narrative_data:
         article_topics = _normalize_topics(narrative_data.get("article_topics"))
@@ -633,7 +643,14 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
     if other:
         lines.append("## 📌 其他动态")
         lines.append("")
-        lines.append(other)
+        if isinstance(other, list):
+            # Scannable format: one bullet per minor item.
+            for b in other:
+                lines.append(f"- {b}")
+        else:
+            # Backward compat: older editor output (a single dense
+            # paragraph) renders as before.
+            lines.append(str(other))
         lines.append("")
         lines.append("---")
         lines.append("")

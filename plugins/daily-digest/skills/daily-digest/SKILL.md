@@ -1,6 +1,6 @@
 ---
 name: daily-digest
-version: "1.1.11"
+version: "1.2.0"
 description: |
   Orchestrate the three collector skills (rss-monitor, github-monitor,
   tool-update-monitor) into a single run and produce ONE unified daily digest
@@ -331,7 +331,7 @@ lists for GitHub & tools:
 ## 📊 今日概览          ← articles editor overview (or fallback)
 ## 🔥 今日重点          ← 5-8 ARTICLE topic narratives (no media-channel names)
 ## 🎧 播客精选          ← 4-6 PODCAST topic narratives (independent track)
-## 📌 其他动态          ← minor articles roundup (omitted if empty)
+## 📌 其他动态          ← minor articles roundup as bullets (omitted if empty)
 ## 🔧 GitHub 动态       ← compact list of PRs/issues (grouped by repo)
 ## 🛠 工具更新           ← compact list of releases (grouped by category)
 ```
