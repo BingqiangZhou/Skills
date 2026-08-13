@@ -19,7 +19,7 @@ Output shape:
 
     ## 📊 今日概览                      ← editor overview (RSS-driven)
     ## 🔥 今日重点                      ← article topic narratives
-    ## 🎧 播客精选                      ← podcast topic narratives (separate track)
+    ## 🎧 播客精选                      ← per-episode roundup (grouped by show)
     ## 📌 其他动态                      ← RSS minor-items roundup (optional)
     ## 🔧 GitHub 动态                   ← compact list of PRs/issues
     ## 🛠 工具更新                       ← compact list of releases
@@ -170,24 +170,60 @@ def _normalize_topics(raw_topics):
     return out
 
 
+def _normalize_str_list(raw):
+    """Coerce into a list of stripped non-empty strings. Always a list."""
+    if isinstance(raw, list):
+        return [b.strip() for b in raw if isinstance(b, str) and b.strip()]
+    if isinstance(raw, str):
+        s = raw.strip()
+        return [s] if s else []
+    return []
+
+
+def _normalize_podcast_episodes(raw):
+    """Coerce podcast_episodes into a list of {show, title, summary, url}.
+
+    Accepts ``show`` or ``podcast_name`` as the show key (defensive). Drops
+    entries missing both show and title. Carries ``url`` for optional linking.
+    """
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for e in raw:
+        if not isinstance(e, dict):
+            continue
+        show = (e.get("show") or e.get("podcast_name") or "").strip()
+        title = (e.get("title") or "").strip()
+        summary = (e.get("summary") or "").strip()
+        url = (e.get("url") or "").strip()
+        if not (show or title):
+            continue
+        out.append({"show": show, "title": title,
+                    "summary": summary, "url": url})
+    return out
+
+
 def build_narrative(narrative_data):
     """Normalize the editor sub-agent's digest_narrative.json output.
 
     Supports two payload shapes:
 
     - **Split** (articles + podcasts independent): top-level ``overview``,
-      ``other``, plus ``article_topics`` and ``podcast_topics`` lists.
+      ``other``, ``article_topics``, plus the podcast track
+      (``podcast_episodes``/``podcast_other`` per-episode format, with
+      ``podcast_topics`` kept as a legacy fallback).
     - **Legacy/flat**: top-level ``overview``, ``other``, ``topics`` list
       (kept for backward compatibility).
 
-    Returns ``(overview, article_topics, podcast_topics, other)``. For the
-    legacy shape, all topics land in ``article_topics`` and ``podcast_topics``
-    is empty. ``other`` is a list of bullet strings when the editor complied
-    with the scannable format, else a legacy paragraph string (or "").
-    Tolerates a missing/partial payload by returning empty values.
+    Returns ``(overview, article_topics, podcast_topics, podcast_episodes,
+    podcast_other, other)``. For the legacy shape, all topics land in
+    ``article_topics`` and the podcast fields are empty. ``other`` is a list
+    of bullet strings when the editor complied with the scannable format,
+    else a legacy paragraph string (or ""). Tolerates a missing/partial
+    payload by returning empty values.
     """
     if not isinstance(narrative_data, dict):
-        return "", [], [], ""
+        return "", [], [], [], [], ""
 
     overview = (narrative_data.get("overview") or "").strip()
     raw_other = narrative_data.get("other")
@@ -206,7 +242,12 @@ def build_narrative(narrative_data):
     else:
         article_topics = _normalize_topics(narrative_data.get("topics"))
         podcast_topics = []
-    return overview, article_topics, podcast_topics, other
+
+    podcast_episodes = _normalize_podcast_episodes(
+        narrative_data.get("podcast_episodes"))
+    podcast_other = _normalize_str_list(narrative_data.get("podcast_other"))
+    return (overview, article_topics, podcast_topics,
+            podcast_episodes, podcast_other, other)
 
 
 def _fallback_overview(digest_highlights_text, tool_overall, rss_insight):
@@ -279,6 +320,90 @@ def _render_topic_list(lines, heading, topics, missing_placeholder=None):
             lines.append("")
         return
 
+    if missing_placeholder is None:
+        return
+    lines.append(f"## {heading}")
+    lines.append("")
+    lines.append(missing_placeholder)
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+
+def _fmt_episode(title, summary):
+    """One episode as 'title：summary' (whichever parts are present)."""
+    if title and summary:
+        return f"{title}：{summary}"
+    return title or summary
+
+
+def _render_podcast_episodes(lines, heading, episodes, other_episodes,
+                             legacy_topics, missing_placeholder=None):
+    """Render the podcast section as a PER-EPISODE list.
+
+    Preferred shape: ``episodes`` (list of {show, title, summary, url}) → each
+    episode is its own line. Episodes from the SAME show are grouped under the
+    show name (a bold parent + nested episode bullets); single-episode shows
+    stay flat as ``- **show** · title：summary``. Trivial episodes
+    (``other_episodes``) print as a short "其他播客" tail.
+
+    Fallbacks so the section is never silently lost:
+    - empty ``episodes`` but legacy ``legacy_topics`` present → render the old
+      topic-narrative list (backward compat);
+    - both empty + a ``missing_placeholder`` → emit the heading + warning;
+    - both empty + no placeholder → no-op.
+    """
+    if episodes:
+        lines.append(f"## {heading}")
+        lines.append("")
+        # Group by show, preserving first-seen order. Episodes with no show
+        # are rendered as standalone bullets (never bucketed under an empty
+        # parent label).
+        groups = {}
+        order = []
+        standalone = []
+        for ep in episodes:
+            show = (ep.get("show") or "").strip()
+            title = (ep.get("title") or "").strip()
+            summary = (ep.get("summary") or "").strip()
+            body = _fmt_episode(title, summary)
+            if not show:
+                if body:
+                    standalone.append(body)
+                continue
+            if show not in groups:
+                groups[show] = []
+                order.append(show)
+            groups[show].append(body)
+        for show in order:
+            eps = groups[show]
+            if len(eps) == 1:
+                lines.append(f"- **{show}** · {eps[0]}"
+                             if eps[0] else f"- **{show}**")
+            else:
+                lines.append(f"- **{show}**")
+                for body in eps:
+                    lines.append(f"  - {body}" if body else "  -")
+        for body in standalone:
+            lines.append(f"- {body}")
+        if other_episodes:
+            lines.append("")
+            lines.append("- **其他播客**")
+            for line in other_episodes:
+                line = (line or "").strip()
+                if line:
+                    lines.append(f"  - {line}")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        return
+
+    # Legacy fallback: old podcast_topics theme structure.
+    if legacy_topics:
+        _render_topic_list(lines, heading, legacy_topics)
+        return
+
+    # Nothing produced.
     if missing_placeholder is None:
         return
     lines.append(f"## {heading}")
@@ -590,8 +715,10 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
         lines.append("")
 
     # --- Overview + 今日重点(文章) + 播客精选 + 其他动态 (or fallback) ---
-    overview, article_topics, podcast_topics, other = build_narrative(narrative_data)
-    has_narrative = bool(overview or article_topics or podcast_topics or other)
+    (overview, article_topics, podcast_topics,
+     podcast_episodes, podcast_other, other) = build_narrative(narrative_data)
+    has_narrative = bool(overview or article_topics or podcast_topics
+                         or podcast_episodes or other)
     expected_podcasts = _expected_podcast_count(rss_data)
 
     lines.append("## 📊 今日概览")
@@ -623,22 +750,25 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
         )
 
     # Podcast section: NEVER silently drop. If the collector saw podcasts but
-    # the editor produced no podcast_topics, emit the heading + a clear warning
-    # so a missing podcast track is obvious (not invisible).
+    # the editor produced no podcast narrative (neither the new per-episode
+    # track nor the legacy topic track), emit the heading + a clear warning so
+    # a missing podcast track is obvious (not invisible).
     podcast_placeholder = None
-    if not podcast_topics and expected_podcasts > 0:
+    has_podcast = bool(podcast_episodes or podcast_topics)
+    if not has_podcast and expected_podcasts > 0:
         podcast_placeholder = (
             f"> ⚠️ 本轮采集到 {expected_podcasts} 条播客，"
             "但未生成播客叙事（播客主编步骤缺失或失败），可重跑 daily-digest 补齐。"
         )
         print(f"WARNING: expected {expected_podcasts} podcasts but "
-              f"podcast_topics is empty; emitting placeholder in report.",
+              f"podcast narrative is empty; emitting placeholder in report.",
               file=sys.stderr)
 
     _render_topic_list(lines, "🔥 今日重点", article_topics,
                        missing_placeholder=article_placeholder)
-    _render_topic_list(lines, "🎧 播客精选", podcast_topics,
-                       missing_placeholder=podcast_placeholder)
+    _render_podcast_episodes(lines, "🎧 播客精选",
+                             podcast_episodes, podcast_other, podcast_topics,
+                             missing_placeholder=podcast_placeholder)
 
     if other:
         lines.append("## 📌 其他动态")
@@ -790,10 +920,13 @@ def main():
     mode = "narrative" if narrative_data else "fallback"
     # Podcast narrative coverage — surfaces a missing track at a glance.
     if rss_data is not None:
-        _, _, pod_topics, _ = build_narrative(narrative_data)
+        _, _, pod_topics, pod_eps, _, _ = build_narrative(narrative_data)
         expected = _expected_podcast_count(rss_data)
         if expected > 0:
-            rendered.append(f"Podcasts({len(pod_topics)} topics / {expected} eps)")
+            if pod_eps:
+                rendered.append(f"Podcasts({len(pod_eps)} eps / {expected})")
+            else:
+                rendered.append(f"Podcasts({len(pod_topics)} topics / {expected} eps)")
     print(f"Unified report written to {output_path} "
           f"({', '.join(rendered)}, {mode})")
 

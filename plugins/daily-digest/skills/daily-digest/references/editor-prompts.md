@@ -138,58 +138,56 @@ writes `digest_narrative_podcasts.json`.
 
 ```
 Task: Act as the editor of today's PODCAST digest (podcasts only; NO articles).
-Read the one-line summaries and produce a SCANNABLE, bullet-first digest
-(every topic = lead + bullets, NEVER a dense paragraph).
+Produce a PER-EPISODE digest — every episode stands on its own, NEVER merged
+across shows into content-theme buckets.
 
 Read this file:
 - {project_root}/workspaces/daily-digests/data/daily-digest/rss_podcasts_summaries.json
 
-Each entry is a one-line Chinese summary of a podcast episode. Your job:
+Each entry is one podcast episode with `podcast_name`, `title`, `url`, and a
+one-line `ai_summary`. Your job:
 
-1. Cluster the episodes by CONTENT THEME — aim for 4-6 topics. Group by what
-   the episodes are ABOUT (e.g. "AI 与创业对谈", "财经与市场", "文化与历史",
-   "心理健康与生活"). Lifestyle / personal / true-crime episodes should be
-   bundled very briefly into one "其他" note WITHOUT elaborating sensitive
-   details — just acknowledge they exist.
+1. For each episode with real informational / analytical substance, emit ONE
+   entry in `podcast_episodes`:
+   - `show`: the `podcast_name` (the show this episode belongs to).
+   - `title`: the episode `title`.
+   - `summary`: ONE Chinese sentence (≤50字) saying what THIS episode is
+     actually about — the content / takeaway, not a restatement of the title.
+   - `url`: the episode url.
+   Each episode is independent. Do NOT merge different episodes' content
+   together, and do NOT cluster episodes into themes.
 
-2. For each topic produce a SCANNABLE structure. The ONLY acceptable
-   per-topic shape is `lead` + `bullets` — you MUST NOT emit a `narrative`
-   string field:
-   - `lead`: ONE short Chinese sentence (≤40 字) pointing out the core
-     theme of this topic.
-   - `bullets`: 3-8 independent bullets, each ≤60 字 and stating ONE fact.
-     Scale the count to the topic's information density — low-density
-     topics stay at 3-5 crisp bullets, fact-dense ones MAY use 6-8 so that
-     NO substantive item is dropped. You MAY bold the leading subject for
-     quick scanning. You MAY name the podcast/show when it identifies the
-     conversation (e.g. 「某播客对谈……」), but focus on the CONTENT, not on
-     who published it. Each bullet should stand alone — do not chain facts
-     with commas into a run-on.
+2. Episodes with little substance — pure entertainment, daily news roundups,
+   language / listening drills, true crime, lifestyle chatter — go into
+   `podcast_other` as one-liners ("节目名 · 主题"). Do NOT elaborate sensitive
+   crime details; just acknowledge they exist.
 
-   CRITICAL — NO INFORMATION LOSS: the bullet list must collectively cover
-   every substantive point. If exceeding 8 bullets, split into two topics
-   rather than dropping facts.
+3. You MAY freely name shows / hosts here (unlike the articles track) — the
+   show identity IS the point of a per-episode podcast digest.
 
-3. In each topic's `items` array, record every episode you referenced
-   (url + short label). This is for audit only — it is NOT rendered.
+CRITICAL - Coverage rule: every collected episode MUST appear in
+`podcast_episodes` or `podcast_other`. NOTHING is silently dropped.
+
+CRITICAL - Format: you MUST emit `podcast_episodes` as an array of objects
+and `podcast_other` as an array of strings. You MUST NOT emit the legacy
+`podcast_topics` theme structure — no clustering, no lead/bullets topics.
 
 Write the results as JSON to:
 {project_root}/workspaces/daily-digests/data/daily-digest/digest_narrative_podcasts.json
 
 Use this exact structure:
 {
-  "podcast_topics": [
+  "podcast_episodes": [
     {
-      "title": "话题标题",
-      "lead": "一句话导语（≤40字），点出该话题核心主题",
-      "bullets": [
-        "**主体** 事实（≤60字一条，必填）",
-        "**主体** 事实（≤60字一条，必填）"
-      ],
-      "items": [
-        {"source": "rss", "url": "...", "label": "节目名 · 主题……"}
-      ]
+      "show": "节目名",
+      "title": "本期标题",
+      "summary": "一句话（≤50字）说清这期讲什么",
+      "url": "https://..."
     }
+  ],
+  "podcast_other": [
+    "节目名 · 一句话主题",
+    "节目名 · 一句话主题"
   ]
 }
 

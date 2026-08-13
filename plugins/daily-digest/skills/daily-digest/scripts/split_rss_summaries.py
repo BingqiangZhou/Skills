@@ -56,15 +56,27 @@ def main():
     rss_data = load_json(args.rss_input)
     summaries_data = load_json(args.summaries)
 
-    # url -> source map from the collector output (authoritative source tag).
-    url2src = {u.get("url", "").strip(): u.get("source", "")
-               for u in rss_data.get("updates", [])}
+    # url -> {source, podcast meta} map from the collector output. The source
+    # tag is authoritative; podcast_name + title are carried through so the
+    # per-episode editor keeps each episode's identity (show + title) instead
+    # of clustering different shows' episodes into content-theme buckets.
+    url_meta = {}
+    for u in rss_data.get("updates", []):
+        url = (u.get("url") or "").strip()
+        if not url:
+            continue
+        url_meta[url] = {
+            "source": u.get("source", ""),
+            "podcast_name": u.get("podcast_name", ""),
+            "title": u.get("title", ""),
+        }
 
     articles, podcasts = [], []
     unknown = 0
     for e in summaries_data.get("summaries", []):
         url = (e.get("url") or "").strip()
-        source = url2src.get(url, "")
+        meta = url_meta.get(url, {})
+        source = meta.get("source", "")
         rec = {
             "url": url,
             "ai_summary": e.get("ai_summary", ""),
@@ -72,6 +84,8 @@ def main():
             "source": source,
         }
         if source == "podcast":
+            rec["podcast_name"] = meta.get("podcast_name", "")
+            rec["title"] = meta.get("title", "")
             podcasts.append(rec)
         else:
             articles.append(rec)

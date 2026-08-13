@@ -95,6 +95,16 @@ def _warn_unscannable(track, topics):
     return count
 
 
+def _normalize_str_list(raw):
+    """Coerce into a list of stripped non-empty strings. Always a list."""
+    if isinstance(raw, list):
+        return [b.strip() for b in raw if isinstance(b, str) and b.strip()]
+    if isinstance(raw, str):
+        s = raw.strip()
+        return [s] if s else []
+    return []
+
+
 def _normalize_other(raw):
     """Coerce the ``other`` roundup into a list of bullet strings.
 
@@ -104,17 +114,35 @@ def _normalize_other(raw):
     ``main()`` then warns so the silent fallback stays visible.
     """
     if isinstance(raw, list):
-        out = []
-        for b in raw:
-            if isinstance(b, str):
-                b = b.strip()
-                if b:
-                    out.append(b)
-        return out
+        return _normalize_str_list(raw)
     if isinstance(raw, str):
         s = raw.strip()
         return s if s else ""
     return ""
+
+
+def _normalize_podcast_episodes(raw):
+    """Coerce podcast_episodes into a list of {show, title, summary, url}.
+
+    Accepts ``show`` or ``podcast_name`` as the show key (defensive). Drops
+    entries missing both show and title (unidentifiable). ``url`` is carried
+    for optional linking; non-dict items are skipped.
+    """
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for e in raw:
+        if not isinstance(e, dict):
+            continue
+        show = (e.get("show") or e.get("podcast_name") or "").strip()
+        title = (e.get("title") or "").strip()
+        summary = (e.get("summary") or "").strip()
+        url = (e.get("url") or "").strip()
+        if not (show or title):
+            continue
+        out.append({"show": show, "title": title,
+                    "summary": summary, "url": url})
+    return out
 
 
 def main():
@@ -140,11 +168,15 @@ def main():
 
     # Non-destructive merge: each file contributes ONLY its own keys.
     # articles -> overview, article_topics, other
-    # podcasts -> podcast_topics
+    # podcasts -> podcast_episodes, podcast_other (new per-episode format);
+    #             podcast_topics kept as a legacy fallback for the renderer.
     merged = {
         "overview": (articles.get("overview") or "").strip(),
         "article_topics": _normalize_topics(articles.get("article_topics")),
         "podcast_topics": _normalize_topics(podcasts.get("podcast_topics")),
+        "podcast_episodes": _normalize_podcast_episodes(
+            podcasts.get("podcast_episodes")),
+        "podcast_other": _normalize_str_list(podcasts.get("podcast_other")),
         "other": _normalize_other(articles.get("other")),
     }
 
@@ -160,12 +192,21 @@ def main():
         print("WARNING: `other` is a paragraph, not a bullet array — "
               "editor did not comply; consider rerunning step 2d.",
               file=sys.stderr)
+    # The podcast editor should produce per-episode output. Warn if neither
+    # the new (podcast_episodes) nor the legacy (podcast_topics) track came
+    # back — a silent empty podcast section is the failure this catches.
+    if not merged["podcast_episodes"] and not merged["podcast_topics"]:
+        print("WARNING: no podcast narrative produced (podcast_episodes and "
+              "podcast_topics both empty); consider rerunning step 2d-2.",
+              file=sys.stderr)
 
     print(f"merged -> {out}")
     print(f"  overview: {'yes' if merged['overview'] else 'no'}")
     print(f"  article_topics: {len(merged['article_topics'])}"
           + (f" ({n_art_bad} unscannable)" if n_art_bad else ""))
-    print(f"  podcast_topics: {len(merged['podcast_topics'])}"
+    print(f"  podcast_episodes: {len(merged['podcast_episodes'])}")
+    print(f"  podcast_other: {len(merged['podcast_other'])}")
+    print(f"  podcast_topics: {len(merged['podcast_topics'])} (legacy fallback)"
           + (f" ({n_pod_bad} unscannable)" if n_pod_bad else ""))
     if isinstance(merged["other"], list):
         print(f"  other: {len(merged['other'])} bullets")
