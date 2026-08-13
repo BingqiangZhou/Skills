@@ -2,9 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.7.0 (2026-08-13)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.6.0...v1.7.0)**
+> 本次发布聚焦 daily-digest 报告可读性：「📌 其他动态」由整段密集文字改为加粗主体的 bullet 列表；「🎧 播客精选」由跨节目按主题归并改为每期独立总结、按节目名归拢（多期节目嵌套、琐碎内容尾部收拢），找回每期出处。两项均经真实数据端到端验证，零信息损失。
+>
+> 共 2 commits，其中 🚀 Features 2 | 🐛 Fixes 0
+
+### 🚀 Features
+
+- **daily-digest**: 其他动态改为 bullet 列表渲染([f071f46](https://github.com/BingqiangZhou/Skills/commit/f071f467a128a31c85f67c423c48591f1b514a52))
+- **daily-digest**: 播客精选改为逐期总结，按节目名归拢([21df8ac](https://github.com/BingqiangZhou/Skills/commit/21df8ac223d4bb72e7f320d4d71f972764862a2f))
+
 ## v1.6.0 (2026-08-12)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.5.2...v1.6.0)**
-<!-- AI_SUMMARY -->
 > 本次发布聚焦信息源质量与 changelog 获取能力：公众号源从 tttmr/Wechat2RSS（低质安全源为主）切换为 BestBlogs API 精选的 294 条高质量技术/AI 源；tool-update-monitor 全面优化 release notes 获取（html 正文提取、GitHub URL-body 自动跟随、article 标签去噪音、npm 源 changelog_repo 跨源补充）；daily-digest GitHub 动态条目精简为标题+摘要。
 >
 > 共 6 commits，其中 🚀 Features 4 | 🐛 Fixes 1
@@ -19,9 +29,6 @@ All notable changes to this project will be documented in this file.
 ### 🐛 Bug Fixes
 
 - **daily-digest**: GitHub 动态条目精简显示，去掉 meta 行([b3a8a87](https://github.com/BingqiangZhou/Skills/commit/b3a8a878b28b9d6487f2be8f1a0bf05375786184))
-# Changelog
-
-All notable changes to this project will be documented in this file.
 
 ## v1.5.2 (2026-08-12)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.5.1...v1.5.2)**
