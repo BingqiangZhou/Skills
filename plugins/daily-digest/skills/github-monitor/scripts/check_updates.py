@@ -43,6 +43,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # Sibling import: relies on the script being run from the scripts/ directory
 # (cwd) or via the `cd {skill_directory} && python scripts/...` convention.
@@ -222,11 +223,34 @@ def parse_iso(ts):
             return None
 
 
+def _stable_url(url, page_no):
+    """Canonical cache key for a GitHub list page: URL minus volatile params.
+
+    Strips `since` (carries the run's window edge and changes every run, so
+    keying on the raw URL never matched a previous entry and the cache grew
+    unboundedly) and pins the `page` param, so page N's entry is stable
+    across runs regardless of whether the URL came from config or a Link
+    header (GitHub's Link URLs use the /repositories/{id}/ form, which would
+    otherwise duplicate keys for the same page).
+    """
+    parts = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(parts.query)
+             if k not in ('since', 'page')]
+    if page_no > 1:
+        query.append(('page', str(page_no)))
+    query.sort()
+    return urlunsplit((parts.scheme, parts.netloc, parts.path,
+                       urlencode(query), parts.fragment))
+
+
 def _paginate(url, label, owner, repo, cache, per_page):
     """Generic pagination loop for a GitHub list endpoint.
 
     `label` is 'PRs' or 'issues' (for logs). Returns (items, checked, errors).
-    Uses the ETag cache to short-circuit unchanged pages.
+    Uses the ETag cache to short-circuit unchanged pages. Entries are keyed
+    by the canonical page URL (see _stable_url) so a 304 run can walk the
+    whole cached pagination instead of truncating at page 1 (a 304 response
+    carries no Link header to follow).
     """
     items = []
     checked = 0
@@ -236,12 +260,14 @@ def _paginate(url, label, owner, repo, cache, per_page):
     token_note = 'with token' if github_token() else 'WITHOUT token (60/h limit)'
     print(f'Fetching {owner}/{repo} {label} ({token_note})...')
 
-    while url and page < MAX_PAGES:
+    next_url = url
+    while next_url and page < MAX_PAGES:
         page += 1
-        cached = cache.get(url, {})
+        key = _stable_url(url, page)
+        cached = cache.get(key, {})
         etag = cached.get('etag')
         try:
-            resp = github_get(url, etag=etag)
+            resp = github_get(next_url, etag=etag)
         except Exception as e:
             msg = f'{owner}/{repo} page {page}: {e}'
             errors.append(msg)
@@ -258,7 +284,7 @@ def _paginate(url, label, owner, repo, cache, per_page):
             data = resp.get('data')
             new_etag = resp.get('etag')
             if isinstance(data, list) and new_etag:
-                cache[url] = {'etag': new_etag, 'data': data, 'ts': time.time()}
+                cache[key] = {'etag': new_etag, 'data': data, 'ts': time.time()}
             rate_rem = resp.get('rate_remaining')
             if rate_rem is not None and rate_rem < 10:
                 # Close to the rate limit; pause briefly to avoid a 403.
@@ -274,10 +300,16 @@ def _paginate(url, label, owner, repo, cache, per_page):
         checked += len(data)
         items.extend(data)
 
-        link = resp.get('link', {}) if resp else {}
-        url = link.get('next')
-        if not url:
+        # A partial page is by construction the last page.
+        if len(data) < per_page:
             break
+
+        if resp is not None:
+            next_url = resp.get('link', {}).get('next')
+        else:
+            # 304 loses the Link header — reconstruct the next page request
+            # from the canonical URL so the next cached page is consulted.
+            next_url = _stable_url(url, page + 1)
 
     return items, checked, errors
 
@@ -425,15 +457,29 @@ def main():
                         help='GitHub API page size (default: 100)')
     args = parser.parse_args()
 
+    if sys.platform == 'win32':
+        sys.stdout.reconfigure(encoding='utf-8')
+
     script_dir = Path(__file__).resolve().parent
     repos_path = args.repos or str(script_dir.parent / 'references' / 'repos.json')
     repos = load_repos(repos_path, args.owner, args.repo)
 
     now_utc = datetime.now(timezone.utc)
     cutoff = now_utc - timedelta(hours=args.hours)
-    since_iso = cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')
+    # Round the window edge DOWN to the hour so consecutive runs within the
+    # same hour issue byte-identical requests and the ETag cache can actually
+    # return 304. The exact cutoff is still enforced client-side
+    # (keep_issue/keep_pr re-filter), so the slightly larger fetch window
+    # costs nothing.
+    window_start = cutoff.replace(minute=0, second=0, microsecond=0)
+    since_iso = window_start.strftime('%Y-%m-%dT%H:%M:%SZ')
 
     cache = load_cache(args.cache)
+    # Drop entries written by older versions whose keys embedded the
+    # per-run `since` value — they can never match again.
+    stale_keys = [k for k in cache if 'since=' in k]
+    for k in stale_keys:
+        del cache[k]
 
     all_updates = []
     seen_keys = set()           # dedup within this run by item html_url
@@ -502,10 +548,13 @@ def main():
               f'{bucket["filtered_out"]} filtered out '
               f'(monitor={types})\n')
 
-    # Group by repo, newest-first within each group. A reverse sort on
-    # (repo, sort_at) yields repo-grouping + reverse-chronological order.
-    all_updates.sort(key=lambda u: (u.get('repo', ''), u.get('sort_at', '')),
-                     reverse=True)
+    # Group by repo in repos.json order, newest-first within each group.
+    # Two stable sorts (Python sorts are stable): first newest-first by
+    # sort_at, then by repo order — a single reverse sort on (repo, sort_at)
+    # used to reverse the repo dimension into Z→A order.
+    repo_rank = {repo_key: i for i, repo_key in enumerate(repo_acc)}
+    all_updates.sort(key=lambda u: u.get('sort_at', ''), reverse=True)
+    all_updates.sort(key=lambda u: repo_rank.get(u.get('repo', ''), len(repo_rank)))
 
     save_cache(args.cache, cache)
 
@@ -535,7 +584,7 @@ def main():
             'error_details': total_errors,
             'hours': args.hours,
             'update_count': len(all_updates),
-            'check_time': now_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'check_time': now_utc.astimezone(CST).strftime('%Y-%m-%d %H:%M:%S CST'),
             'repos': [f"{c.get('owner')}/{c.get('repo')}" for c in repos if c.get('owner') and c.get('repo')],
             'per_repo': per_repo_stats,
         },

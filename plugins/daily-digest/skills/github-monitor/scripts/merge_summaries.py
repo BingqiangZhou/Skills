@@ -70,6 +70,9 @@ def main():
     )
     args = parser.parse_args()
 
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8")
+
     batch_glob = str(Path(args.batch_dir) / args.pattern)
     batch_files = sorted(glob.glob(batch_glob))
 

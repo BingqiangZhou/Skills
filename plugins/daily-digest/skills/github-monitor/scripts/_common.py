@@ -11,10 +11,13 @@ import json
 import os
 import re
 import ssl
+import sys
 import time
 import random
+import email.utils
 import urllib.request
 import urllib.error
+from datetime import datetime, timezone
 
 # Shared defaults
 TIMEOUT = 15
@@ -47,6 +50,32 @@ def _decode_body(content):
         except (UnicodeDecodeError, LookupError):
             continue
     return content.decode('utf-8', errors='replace')
+
+
+def _retry_after_seconds(value, default):
+    """Parse a Retry-After header (delay-seconds or HTTP-date) into seconds.
+
+    The int-only parse raised ValueError on the RFC 7231 HTTP-date form.
+    Caps the wait at 60s so a hostile/buggy server cannot stall the run.
+    Returns `default` when the value is missing or unparseable.
+    """
+    if value is None:
+        return default
+    value = value.strip()
+    try:
+        return min(max(int(value), 0), 60)
+    except ValueError:
+        pass
+    try:
+        target = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return default
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=timezone.utc)
+    delta = (target - datetime.now(timezone.utc)).total_seconds()
+    if delta <= 0:
+        return 0
+    return min(delta, 60)
 
 
 def fetch_url(url, etag=None, last_modified=None, accept=None, max_retries=MAX_RETRIES):
@@ -97,7 +126,8 @@ def fetch_url(url, etag=None, last_modified=None, accept=None, max_retries=MAX_R
             if e.code == 304:
                 return None  # Not Modified，不是错误
             if e.code == 429 and attempt < max_retries:
-                wait = int(e.headers.get('Retry-After', 2 * (attempt + 1)))
+                wait = _retry_after_seconds(e.headers.get('Retry-After'),
+                                            2 * (attempt + 1))
                 time.sleep(wait + random.uniform(0, 1))
                 continue
             if e.code >= 500 and attempt < max_retries:
@@ -143,7 +173,10 @@ def github_get(url, etag=None, max_retries=MAX_RETRIES):
     Sets the GitHub JSON Accept header and, if a token is present in the
     environment (GITHUB_ACCESS_TOKEN), an Authorization: Bearer header.
     Retries on 429 (honoring Retry-After) and 5xx, same backoff policy as
-    fetch_url. When X-RateLimit-Remaining is 0, sleeps until the reset epoch.
+    fetch_url. GitHub signals primary rate-limit exhaustion with 403 +
+    X-RateLimit-Remaining: 0 (not 429): when the reset epoch is <= 5 minutes
+    away we sleep until it and retry; otherwise we raise a 403 whose message
+    says when the limit resets and recommends GITHUB_ACCESS_TOKEN.
 
     Returns:
         - None on 304 Not Modified.
@@ -200,9 +233,28 @@ def github_get(url, etag=None, max_retries=MAX_RETRIES):
             if e.code == 304:
                 return None
             if e.code == 429 and attempt < max_retries:
-                wait = int(e.headers.get('Retry-After', 2 * (attempt + 1)))
+                wait = _retry_after_seconds(e.headers.get('Retry-After'),
+                                            2 * (attempt + 1))
                 time.sleep(wait + random.uniform(0, 1))
                 continue
+            if e.code == 403 and e.headers.get('X-RateLimit-Remaining') == '0':
+                # Primary rate limit exhausted. Sleep until the reset epoch
+                # when it is close; otherwise surface a clear error instead
+                # of stalling the run for most of an hour.
+                try:
+                    delay = int(e.headers.get('X-RateLimit-Reset', 0)) - int(time.time())
+                except (TypeError, ValueError):
+                    delay = -1
+                if 0 <= delay <= 300 and attempt < max_retries:
+                    print(f'  GitHub rate limit hit (403); sleeping {delay}s '
+                          f'until reset', file=sys.stderr)
+                    time.sleep(delay + 2)
+                    continue
+                raise urllib.error.HTTPError(
+                    url, 403,
+                    f'GitHub rate limit exhausted (resets in {max(delay, 0)}s); '
+                    f'set GITHUB_ACCESS_TOKEN to raise it to 5000/hour',
+                    e.headers, None) from e
             if e.code >= 500 and attempt < max_retries:
                 time.sleep((2 ** attempt) + random.uniform(0, 1))
                 continue
