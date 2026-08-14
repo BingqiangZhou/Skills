@@ -22,10 +22,15 @@ import time
 import random
 import urllib.request
 import urllib.error
+import email.utils
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
+
+# Repo convention: timestamps are CST (UTC+8). Chinese feeds that omit a
+# timezone offset are emitting local (CST) time, so naive values pin to CST.
+CST = timezone(timedelta(hours=8))
 
 # Shared defaults
 TIMEOUT = 30
@@ -68,6 +73,33 @@ def _decode_body(content):
         except (UnicodeDecodeError, LookupError):
             continue
     return content.decode("utf-8", errors="replace")
+
+
+def _retry_after_seconds(value, default):
+    """Parse a Retry-After header into seconds.
+
+    Per RFC 7231 the value is either delay-seconds or an HTTP-date; the
+    int-only parse used previously raised ValueError on the HTTP-date form.
+    Caps the wait at 60s so a hostile/buggy server cannot stall the run.
+    Returns `default` when the value is missing or unparseable.
+    """
+    if value is None:
+        return default
+    value = value.strip()
+    try:
+        return min(max(int(value), 0), 60)
+    except ValueError:
+        pass
+    try:
+        target = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return default
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=timezone.utc)
+    delta = (target - datetime.now(timezone.utc)).total_seconds()
+    if delta <= 0:
+        return 0
+    return min(delta, 60)
 
 
 def fetch_url(url, etag=None, last_modified=None, accept=None,
@@ -120,7 +152,8 @@ def fetch_url(url, etag=None, last_modified=None, accept=None,
             if e.code == 304:
                 return None  # Not Modified — not an error
             if e.code == 429 and attempt < max_retries:
-                wait = int(e.headers.get("Retry-After", 2 * (attempt + 1)))
+                wait = _retry_after_seconds(
+                    e.headers.get("Retry-After"), 2 * (attempt + 1))
                 time.sleep(wait + random.uniform(0, 1))
                 continue
             if e.code >= 500 and attempt < max_retries:
@@ -219,6 +252,18 @@ def strip_html(html_text):
     return stripper.get_text()
 
 
+def fmt_cst(dt, fmt="%Y-%m-%d %H:%M"):
+    """Render a datetime in CST (UTC+8) — the repo's display convention.
+
+    Accepts None (returns ""). Without the astimezone conversion, items whose
+    feed carried an explicit UTC offset rendered as UTC wall time while naive
+    (CST-pinned) items rendered as CST — mixed clocks in one report.
+    """
+    if dt is None:
+        return ""
+    return dt.astimezone(CST).strftime(fmt)
+
+
 # ---------------------------------------------------------------------------
 # Date parsing
 # ---------------------------------------------------------------------------
@@ -238,7 +283,10 @@ def parse_rss_date(date_str):
     """Parse an RSS/Atom date string into a timezone-aware datetime.
 
     Returns None on failure. Tries common RSS date formats, then strips
-    timezone suffixes and retries. Naive datetimes are pinned to UTC.
+    timezone suffixes and retries. Naive datetimes are pinned to CST — the
+    monitored feeds are Chinese sources whose offset-less dates are local
+    (UTC+8) time; pinning them to UTC made items look 8 hours stale and the
+    time-window filter dropped fresh content.
     """
     if not date_str:
         return None
@@ -247,7 +295,7 @@ def parse_rss_date(date_str):
         try:
             dt = datetime.strptime(date_str, fmt)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=CST)
             return dt
         except ValueError:
             continue
@@ -259,7 +307,7 @@ def parse_rss_date(date_str):
                 try:
                     dt = datetime.strptime(date_str, fmt)
                     if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
+                        dt = dt.replace(tzinfo=CST)
                     return dt
                 except ValueError:
                     continue
@@ -427,10 +475,11 @@ def extract_xiaoyuzhou_episodes(html_content):
 def parse_iso8601_date(date_str):
     """Parse an ISO 8601 date string (e.g. Xiaoyuzhou's '2024-11-04T04:19:30.561Z').
 
-    Returns a timezone-aware datetime (UTC), or None on failure.
+    Returns a timezone-aware datetime, or None on failure.
 
     Uses datetime.fromisoformat which natively handles fractional seconds
     (milliseconds). The trailing 'Z' is converted to '+00:00' for compatibility.
+    Naive values are pinned to CST (repo convention for Chinese sources).
     """
     if not date_str:
         return None
@@ -438,7 +487,7 @@ def parse_iso8601_date(date_str):
         normalized = date_str.replace("Z", "+00:00") if date_str.endswith("Z") else date_str
         dt = datetime.fromisoformat(normalized)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=CST)
         return dt
     except (ValueError, AttributeError):
         return None

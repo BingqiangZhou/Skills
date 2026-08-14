@@ -30,12 +30,12 @@ from urllib.parse import urlparse, parse_qs, urlunparse
 import _common
 from _common import (
     fetch_url,
+    fmt_cst,
     parse_rss_items,
     parse_rss_date,
     strip_html,
     load_cache,
     save_cache,
-    parse_xiaoyuzhou_next_data,
     extract_xiaoyuzhou_episodes,
     parse_duration,
 )
@@ -98,7 +98,7 @@ def check_wechat_feed(feed, cutoff_time, cache):
                 "category": feed["category"],
                 "title": item.get("title", "(no title)"),
                 "url": item.get("link", ""),
-                "pub_date": pub_date.strftime("%Y-%m-%d %H:%M"),
+                "pub_date": fmt_cst(pub_date),
                 "pub_date_raw": pub_date_raw,
                 "full_text": full_text,
             })
@@ -257,7 +257,7 @@ def _check_tech_feed(feed_info, cutoff_time, cache):
                 "language": feed_info.get("language", "en"),
                 "title": item.get("title", "(no title)"),
                 "url": item.get("link", ""),
-                "pub_date": pub_date.strftime("%Y-%m-%d %H:%M"),
+                "pub_date": fmt_cst(pub_date),
                 "full_text": full_text,
                 "hn_points": hn_points,
                 "hn_comments": hn_comments,
@@ -322,7 +322,7 @@ def _check_hn_feed(hn_feed, cutoff_time, cache):
             "language": "en",
             "title": item.get("title", "(no title)"),
             "url": item.get("link", ""),
-            "pub_date": pub_date.strftime("%Y-%m-%d %H:%M"),
+            "pub_date": fmt_cst(pub_date),
             "full_text": full_text,
             "hn_points": points,
             "hn_comments": comments,
@@ -443,7 +443,7 @@ def _check_podcast_rss(podcast, cutoff_time, cache):
                 "rank": podcast.get("rank", 0),
                 "title": item.get("title", "(no title)"),
                 "url": item.get("link", ""),
-                "pub_date": pub_date.strftime("%Y-%m-%d %H:%M"),
+                "pub_date": fmt_cst(pub_date),
                 "shownotes": shownotes[:SHOWNOTES_MAX],
                 "duration": parse_duration(item.get("duration_raw")),
             })
@@ -474,7 +474,7 @@ def _check_xiaoyuzhou_fallback(podcast, content):
             date_str = date_match.group(1).replace('年', '-').replace('月', '-').replace('日', '').replace('/', '-')
             try:
                 parsed = datetime.strptime(date_str, '%Y-%m-%d')
-                pub_date = parsed.replace(tzinfo=timezone.utc)
+                pub_date = parsed.replace(tzinfo=_common.CST)
             except ValueError:
                 pass
 
@@ -485,7 +485,7 @@ def _check_xiaoyuzhou_fallback(podcast, content):
             "rank": podcast.get("rank", 0),
             "title": title,
             "url": episode_url,
-            "pub_date": pub_date.strftime("%Y-%m-%d %H:%M") if pub_date else "未知（小宇宙最新一集）",
+            "pub_date": fmt_cst(pub_date) if pub_date else "未知（小宇宙最新一集）",
             "shownotes": plain[:SHOWNOTES_MAX] if len(plain) > SHOWNOTES_MAX else plain,
         })
 
@@ -537,7 +537,7 @@ def _check_podcast_xiaoyuzhou(podcast, cutoff_time, cache):
                 "rank": podcast.get("rank", 0),
                 "title": title,
                 "url": episode_url,
-                "pub_date": pub_date.strftime("%Y-%m-%d %H:%M") if pub_date else "未知（小宇宙）",
+                "pub_date": fmt_cst(pub_date) if pub_date else "未知（小宇宙）",
                 "shownotes": shownotes[:SHOWNOTES_MAX],
                 "duration": duration,
             })
@@ -866,49 +866,54 @@ def _dedup_by_title_similarity(updates):
     return updates
 
 
-def _load_all_feed_urls(refs_dir, sources_to_run):
-    """Collect the set of all currently-monitored feed URLs across sources.
+def _load_all_feed_urls(refs_dir, sources_to_load):
+    """Collect the set of monitored feed URLs across the given sources.
 
     Used for unified cache pruning — cache entries whose URL is no longer in
     any source's reference file are stale and should be removed.
+
+    Returns (all_urls, unloaded) where `unloaded` lists sources whose
+    reference file is missing or unparseable. Those sources contribute no
+    URLs, so callers must skip pruning rather than delete their (unknown)
+    cache entries.
     """
     all_urls = set()
-    if "wechat" in sources_to_run:
+    unloaded = []
+
+    def _read_json(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    if "wechat" in sources_to_load:
         path = refs_dir / "feeds_wechat.json"
-        if path.exists():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    for fd in json.load(f).get("feeds", []):
-                        if fd.get("url"):
-                            all_urls.add(fd["url"])
-            except (json.JSONDecodeError, OSError):
-                pass
-    if "tech" in sources_to_run:
+        try:
+            for fd in _read_json(path).get("feeds", []):
+                if fd.get("url"):
+                    all_urls.add(fd["url"])
+        except (json.JSONDecodeError, OSError):
+            unloaded.append("wechat")
+    if "tech" in sources_to_load:
         path = refs_dir / "feeds_tech.json"
-        if path.exists():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    for cat in data.get("categories", []):
-                        for feed in cat.get("feeds", []):
-                            if feed.get("url"):
-                                all_urls.add(feed["url"])
-                    for hn in data.get("hacker_news", []):
-                        if hn.get("url"):
-                            all_urls.add(hn["url"])
-            except (json.JSONDecodeError, OSError):
-                pass
-    if "podcast" in sources_to_run:
+        try:
+            data = _read_json(path)
+            for cat in data.get("categories", []):
+                for feed in cat.get("feeds", []):
+                    if feed.get("url"):
+                        all_urls.add(feed["url"])
+            for hn in data.get("hacker_news", []):
+                if hn.get("url"):
+                    all_urls.add(hn["url"])
+        except (json.JSONDecodeError, OSError):
+            unloaded.append("tech")
+    if "podcast" in sources_to_load:
         path = refs_dir / "podcasts.json"
-        if path.exists():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    for p in json.load(f).get("podcasts", []):
-                        if p.get("url"):
-                            all_urls.add(p["url"])
-            except (json.JSONDecodeError, OSError):
-                pass
-    return all_urls
+        try:
+            for p in _read_json(path).get("podcasts", []):
+                if p.get("url"):
+                    all_urls.add(p["url"])
+        except (json.JSONDecodeError, OSError):
+            unloaded.append("podcast")
+    return all_urls, unloaded
 
 
 def _prune_cache(cache, current_urls):
@@ -961,7 +966,7 @@ def main():
     sources_to_run = ["wechat", "tech", "podcast"] if args.source == "all" else [args.source]
     all_updates = []
     source_stats = {}
-    check_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    check_time = _common.fmt_cst(datetime.now(timezone.utc), "%Y-%m-%d %H:%M:%S CST")
 
     def run_one(src):
         """Run a single source, returning (src, updates, stats)."""
@@ -1031,11 +1036,22 @@ def main():
             updates, stats = results[src]
             report_one(src, updates, stats)
 
-    # Prune stale cache entries (URLs no longer in any monitored source)
-    current_urls = _load_all_feed_urls(refs_dir, sources_to_run)
-    pruned = _prune_cache(cache, current_urls)
-    if pruned > 0:
-        print(f"\nCache pruned: removed {pruned} stale entries")
+    # Prune stale cache entries: URLs no longer in any monitored source's
+    # reference file. Prune against ALL sources, not just the ones this run
+    # checked — pruning a subset run against only its own URLs would delete
+    # the other sources' still-valid ETag entries and force full refetches
+    # on the next --source all run. Skip pruning entirely if any reference
+    # file is missing/corrupt: without the full monitored set we cannot tell
+    # which cache entries are stale.
+    keep_urls, unloaded_refs = _load_all_feed_urls(
+        refs_dir, ["wechat", "tech", "podcast"])
+    if unloaded_refs:
+        print(f"\nCache pruning skipped (reference file missing/corrupt for: "
+              f"{', '.join(unloaded_refs)})")
+    else:
+        pruned = _prune_cache(cache, keep_urls)
+        if pruned > 0:
+            print(f"\nCache pruned: removed {pruned} stale entries")
 
     # Save cache
     save_cache(cache_path, cache)
