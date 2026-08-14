@@ -19,7 +19,8 @@ from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from _common import fetch_url as _fetch_url_raw, extract_xiaoyuzhou_episodes
+from _common import (fetch_url as _fetch_url_raw, extract_xiaoyuzhou_episodes,
+                     save_json_atomic)
 
 # Minimum length for substring-based title matching. Titles shorter than this
 # are only matched exactly, to prevent false positives like "第50期" matching
@@ -108,15 +109,21 @@ def resolve_one_podcast(podcast_name, indices, episode_titles, xyz_url):
     """
     if not xyz_url:
         print(f"  [跳过] {podcast_name}: 无小宇宙页面链接")
-        return podcast_name, [(idx, None) for idx in indices], len(indices)
+        # group_failed stays 0 — the caller counts each unresolved pair
+        # itself; counting them here too double-reported every failure.
+        return podcast_name, [(idx, None) for idx in indices], 0
 
     try:
+        # Space requests on the shared xiaoyuzhoufm.com domain BEFORE each
+        # request; sleeping after a worker's only request just stalled the
+        # pool for the next podcast.
+        time.sleep(random.uniform(0.2, 0.5))
         html = fetch_url(xyz_url)
         episodes = parse_xiaoyuzhou_episodes(html)
 
         if not episodes:
             print(f"  [失败] {podcast_name}: 小宇宙页面无单集数据")
-            return podcast_name, [(idx, None) for idx in indices], len(indices)
+            return podcast_name, [(idx, None) for idx in indices], 0
 
         pairs = []
         for idx in indices:
@@ -126,13 +133,29 @@ def resolve_one_podcast(podcast_name, indices, episode_titles, xyz_url):
                       f"在 {len(episodes)} 个单集中未找到")
             pairs.append((idx, eid))
 
-        # Jitter delay between requests to avoid rate-limiting on the same domain.
-        time.sleep(random.uniform(0.2, 0.5))
         return podcast_name, pairs, 0
 
     except Exception as e:
         print(f"  [错误] {podcast_name}: {type(e).__name__}: {e}")
-        return podcast_name, [(idx, None) for idx in indices], len(indices)
+        return podcast_name, [(idx, None) for idx in indices], 0
+
+
+def _clean_utm_suffixes(updates):
+    """Strip ?utm_source=… from already-Xiaoyuzhou episode URLs. Returns count.
+
+    Runs on EVERY exit path — the early "nothing to resolve" return used to
+    skip it, so the runs where all URLs were already canonical (exactly the
+    case the cleaning exists for) never cleaned anything.
+    """
+    cleaned = 0
+    for update in updates:
+        if update.get("source") != "podcast":
+            continue
+        url = update.get("url", "")
+        if "xiaoyuzhoufm.com/episode/" in url and "?utm_source=" in url:
+            update["url"] = url.split("?utm_source=")[0]
+            cleaned += 1
+    return cleaned
 
 
 def resolve_updates(input_path, output_path=None):
@@ -153,9 +176,16 @@ def resolve_updates(input_path, output_path=None):
         if "xiaoyuzhoufm.com/episode/" not in url:
             needs_resolve.append(i)
 
+    out = output_path or input_path
+
     if not needs_resolve:
         podcast_count = sum(1 for u in updates if u.get("source") == "podcast")
-        print(f"所有 {podcast_count} 个播客更新已有小宇宙单集链接，无需解析")
+        cleaned = _clean_utm_suffixes(updates)
+        note = f"；清理后缀 {cleaned} 个" if cleaned else ""
+        print(f"所有 {podcast_count} 个播客更新已有小宇宙单集链接，无需解析{note}")
+        if cleaned:
+            save_json_atomic(out, data)
+            print(f"已保存: {out}")
         return
 
     print(f"共 {len(updates)} 个更新，其中 {len(needs_resolve)} 个播客更新需要解析小宇宙链接")
@@ -188,21 +218,11 @@ def resolve_updates(input_path, output_path=None):
                 else:
                     failed += 1
 
-    # Clean ?utm_source=rss suffix from already-Xiaoyuzhou URLs
-    cleaned = 0
-    for update in updates:
-        if update.get("source") != "podcast":
-            continue
-        url = update.get("url", "")
-        if "xiaoyuzhoufm.com/episode/" in url and "?utm_source=" in url:
-            update["url"] = url.split("?utm_source=")[0]
-            cleaned += 1
+    cleaned = _clean_utm_suffixes(updates)
 
     print(f"解析完成: 解析 {resolved} 个，失败 {failed} 个，清理后缀 {cleaned} 个")
 
-    out = output_path or input_path
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_json_atomic(out, data)
     print(f"已保存: {out}")
 
 

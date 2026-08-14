@@ -128,9 +128,15 @@ def transform(item):
             links[name] = url
 
     rss = links.get("rss")
-    # Prefer the canonical "xyz" link; "website" is often the same xyz page and
-    # serves as a fallback when "xyz" is absent.
-    xyz = links.get("xyz") or links.get("website")
+    # Prefer the canonical "xyz" link. The "website" fallback is accepted
+    # ONLY when it actually points at a Xiaoyuzhou page — a plain homepage
+    # used to land in xiaoyuzhou_url, and the resolver then fetched it, found
+    # no episode data, and logged a misleading [失败] per episode.
+    xyz = links.get("xyz")
+    if not xyz:
+        website = links.get("website") or ""
+        if "xiaoyuzhoufm.com" in website:
+            xyz = website
 
     if rss:
         link_type, url = "rss", rss

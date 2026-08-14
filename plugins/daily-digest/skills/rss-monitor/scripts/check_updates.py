@@ -209,7 +209,13 @@ def run_wechat(feeds_path, cutoff_time, cache, workers=10, category=None, count=
 # ===========================================================================
 
 def _check_tech_feed(feed_info, cutoff_time, cache):
-    """Check a tech RSS feed. Returns (feed_info, articles, error, new_cache)."""
+    """Check a tech RSS feed.
+
+    Returns (feed_info, articles, error, new_cache, date_unparsed).
+    ``date_unparsed`` counts dropped items with unparseable dates — only the
+    wechat path used to track this, so a tech feed changing its date format
+    silently lost items.
+    """
     url = feed_info["url"]
     cached = cache.get(url, {})
     etag = cached.get("etag")
@@ -218,10 +224,10 @@ def _check_tech_feed(feed_info, cutoff_time, cache):
     try:
         result = fetch_url(url, etag=etag, last_modified=last_modified)
     except Exception as e:
-        return feed_info, [], f"{type(e).__name__}: {e}", {}
+        return feed_info, [], f"{type(e).__name__}: {e}", {}, 0
 
     if result is None:
-        return feed_info, [], "not_modified", cached
+        return feed_info, [], "not_modified", cached, 0
 
     new_cache = {}
     if result.get("etag") or result.get("last_modified"):
@@ -229,45 +235,52 @@ def _check_tech_feed(feed_info, cutoff_time, cache):
 
     rss_items = parse_rss_items(result["content"])
     articles = []
+    date_unparsed = 0
 
     for item in rss_items:
         pub_date_raw = item.get("pub_date_raw", "")
         pub_date = parse_rss_date(pub_date_raw)
+        if not pub_date:
+            date_unparsed += 1
+            continue
+        if pub_date <= cutoff_time:
+            continue
+        desc_html = item.get("content_encoded") or item.get("description") or ""
+        full_text = strip_html(desc_html)
 
-        if pub_date and pub_date > cutoff_time:
-            desc_html = item.get("content_encoded") or item.get("description") or ""
-            full_text = strip_html(desc_html)
+        # Extract HN-specific fields from description (hnrss.org format)
+        hn_points = None
+        hn_comments = None
+        desc_text = item.get("description", "")
+        if desc_text:
+            m_points = re.search(r"Points:\s*(\d+)", desc_text)
+            if m_points:
+                hn_points = int(m_points.group(1))
+            m_comments = re.search(r"# Comments:\s*(\d+)", desc_text)
+            if m_comments:
+                hn_comments = int(m_comments.group(1))
 
-            # Extract HN-specific fields from description (hnrss.org format)
-            hn_points = None
-            hn_comments = None
-            desc_text = item.get("description", "")
-            if desc_text:
-                m_points = re.search(r"Points:\s*(\d+)", desc_text)
-                if m_points:
-                    hn_points = int(m_points.group(1))
-                m_comments = re.search(r"# Comments:\s*(\d+)", desc_text)
-                if m_comments:
-                    hn_comments = int(m_comments.group(1))
+        articles.append({
+            "source": "tech",
+            "source_name": feed_info["name"],
+            "source_category": feed_info["category"],
+            "language": feed_info.get("language", "en"),
+            "title": item.get("title", "(no title)"),
+            "url": item.get("link", ""),
+            "pub_date": fmt_cst(pub_date),
+            "full_text": full_text,
+            "hn_points": hn_points,
+            "hn_comments": hn_comments,
+        })
 
-            articles.append({
-                "source": "tech",
-                "source_name": feed_info["name"],
-                "source_category": feed_info["category"],
-                "language": feed_info.get("language", "en"),
-                "title": item.get("title", "(no title)"),
-                "url": item.get("link", ""),
-                "pub_date": fmt_cst(pub_date),
-                "full_text": full_text,
-                "hn_points": hn_points,
-                "hn_comments": hn_comments,
-            })
-
-    return feed_info, articles, None, new_cache
+    return feed_info, articles, None, new_cache, date_unparsed
 
 
 def _check_hn_feed(hn_feed, cutoff_time, cache):
-    """Check a Hacker News RSS feed with min_points filtering."""
+    """Check a Hacker News RSS feed with min_points filtering.
+
+    Returns (feed_info, articles, error, new_cache, date_unparsed).
+    """
     feed_info = {
         "name": hn_feed["name"], "url": hn_feed["url"],
         "category": "Hacker News", "language": "en",
@@ -279,10 +292,10 @@ def _check_hn_feed(hn_feed, cutoff_time, cache):
         result = fetch_url(hn_feed["url"], etag=cached.get("etag"),
                            last_modified=cached.get("last_modified"))
     except Exception as e:
-        return feed_info, [], f"{type(e).__name__}: {e}", {}
+        return feed_info, [], f"{type(e).__name__}: {e}", {}, 0
 
     if result is None:
-        return feed_info, [], "not_modified", cached
+        return feed_info, [], "not_modified", cached, 0
 
     new_cache = {}
     if result.get("etag") or result.get("last_modified"):
@@ -290,12 +303,15 @@ def _check_hn_feed(hn_feed, cutoff_time, cache):
 
     rss_items = parse_rss_items(result["content"])
     articles = []
+    date_unparsed = 0
 
     for item in rss_items:
         pub_date_raw = item.get("pub_date_raw", "")
         pub_date = parse_rss_date(pub_date_raw)
-
-        if not (pub_date and pub_date > cutoff_time):
+        if not pub_date:
+            date_unparsed += 1
+            continue
+        if pub_date <= cutoff_time:
             continue
 
         desc_text = item.get("description", "")
@@ -328,7 +344,7 @@ def _check_hn_feed(hn_feed, cutoff_time, cache):
             "hn_comments": comments,
         })
 
-    return feed_info, articles, None, new_cache
+    return feed_info, articles, None, new_cache, date_unparsed
 
 
 def run_tech(feeds_path, cutoff_time, cache, workers=20, category=None):
@@ -358,6 +374,7 @@ def run_tech(feeds_path, cutoff_time, cache, workers=20, category=None):
     checked = 0
     errors = 0
     not_modified = 0
+    date_unparsed_total = 0
     error_details = {}
 
     with ThreadPoolExecutor(max_workers=max(min(workers, len(all_feeds) + len(hn_feeds)), 1)) as executor:
@@ -369,13 +386,14 @@ def run_tech(feeds_path, cutoff_time, cache, workers=20, category=None):
 
         for future in as_completed(futures):
             try:
-                feed_info, articles, error, new_cache = future.result()
+                feed_info, articles, error, new_cache, date_unparsed = future.result()
             except Exception as e:
                 errors += 1
                 error_details[type(e).__name__] = error_details.get(type(e).__name__, 0) + 1
                 continue
 
             checked += 1
+            date_unparsed_total += date_unparsed
             if new_cache:
                 cache[feed_info["url"]] = new_cache
 
@@ -402,6 +420,7 @@ def run_tech(feeds_path, cutoff_time, cache, workers=20, category=None):
         "checked": checked,
         "errors": errors,
         "not_modified": not_modified,
+        "date_unparsed": date_unparsed_total,
         "error_details": error_details,
     }
 
@@ -411,16 +430,21 @@ def run_tech(feeds_path, cutoff_time, cache, workers=20, category=None):
 # ===========================================================================
 
 def _check_podcast_rss(podcast, cutoff_time, cache):
-    """Check a podcast RSS feed. Returns (updates_list_or_None, error, new_cache)."""
+    """Check a podcast RSS feed.
+
+    Returns (updates_list_or_None, error, new_cache, date_unparsed).
+    ``date_unparsed`` counts dropped items with unparseable dates — a feed
+    changing its date format used to lose items silently.
+    """
     url = podcast["url"]
     cached = cache.get(url, {})
     try:
         result = fetch_url(url, etag=cached.get("etag"), last_modified=cached.get("last_modified"))
     except Exception as e:
-        return [], f"{type(e).__name__}: {e}", {}
+        return [], f"{type(e).__name__}: {e}", {}, 0
 
     if result is None:
-        return None, None, cached  # None updates = not_modified signal
+        return None, None, cached, 0  # None updates = not_modified signal
 
     new_cache = {}
     if result.get("etag") or result.get("last_modified"):
@@ -429,26 +453,30 @@ def _check_podcast_rss(podcast, cutoff_time, cache):
     # Use the shared parse_rss_items (supports RSS 2.0 + Atom)
     rss_items = parse_rss_items(result["content"])
     updates = []
+    date_unparsed = 0
 
     for item in rss_items:
         pub_date_raw = item.get("pub_date_raw", "")
         pub_date = parse_rss_date(pub_date_raw)
+        if not pub_date:
+            date_unparsed += 1
+            continue
+        if pub_date <= cutoff_time:
+            continue
+        desc_html = item.get("content_encoded") or item.get("description") or ""
+        shownotes = strip_html(desc_html)
+        updates.append({
+            "source": "podcast",
+            "podcast_name": podcast["name"],
+            "rank": podcast.get("rank", 0),
+            "title": item.get("title", "(no title)"),
+            "url": item.get("link", ""),
+            "pub_date": fmt_cst(pub_date),
+            "shownotes": shownotes[:SHOWNOTES_MAX],
+            "duration": parse_duration(item.get("duration_raw")),
+        })
 
-        if pub_date and pub_date > cutoff_time:
-            desc_html = item.get("content_encoded") or item.get("description") or ""
-            shownotes = strip_html(desc_html)
-            updates.append({
-                "source": "podcast",
-                "podcast_name": podcast["name"],
-                "rank": podcast.get("rank", 0),
-                "title": item.get("title", "(no title)"),
-                "url": item.get("link", ""),
-                "pub_date": fmt_cst(pub_date),
-                "shownotes": shownotes[:SHOWNOTES_MAX],
-                "duration": parse_duration(item.get("duration_raw")),
-            })
-
-    return updates, None, new_cache
+    return updates, None, new_cache, date_unparsed
 
 
 def _check_xiaoyuzhou_fallback(podcast, content):
@@ -493,16 +521,22 @@ def _check_xiaoyuzhou_fallback(podcast, content):
 
 
 def _check_podcast_xiaoyuzhou(podcast, cutoff_time, cache):
-    """Check a Xiaoyuzhou podcast page. Returns (updates_list_or_None, error, new_cache)."""
+    """Check a Xiaoyuzhou podcast page.
+
+    Returns (updates_list_or_None, error, new_cache, date_unparsed).
+    Episodes with unparseable dates are still kept (rendered as 未知) but
+    counted, so a page-format change surfaces in the stats instead of
+    silently bypassing the time window.
+    """
     url = podcast["url"]
     cached = cache.get(url, {})
     try:
         result = fetch_url(url, etag=cached.get("etag"), last_modified=cached.get("last_modified"))
     except Exception as e:
-        return [], f"{type(e).__name__}: {e}", {}
+        return [], f"{type(e).__name__}: {e}", {}, 0
 
     if result is None:
-        return None, None, cached
+        return None, None, cached, 0
 
     new_cache = {}
     if result.get("etag") or result.get("last_modified"):
@@ -510,6 +544,7 @@ def _check_podcast_xiaoyuzhou(podcast, cutoff_time, cache):
 
     episodes = extract_xiaoyuzhou_episodes(result["content"])
     updates = []
+    date_unparsed = 0
 
     if episodes:
         for ep in episodes:
@@ -521,7 +556,9 @@ def _check_podcast_xiaoyuzhou(podcast, cutoff_time, cache):
             pub_date_str = ep.get("pubDate", "")
             pub_date = _common.parse_iso8601_date(pub_date_str)
 
-            if pub_date and pub_date <= cutoff_time:
+            if pub_date is None:
+                date_unparsed += 1
+            elif pub_date <= cutoff_time:
                 continue
 
             description = ep.get("description", "") or ""
@@ -545,7 +582,7 @@ def _check_podcast_xiaoyuzhou(podcast, cutoff_time, cache):
         # Fallback: regex parsing when __NEXT_DATA__ is unavailable
         updates = _check_xiaoyuzhou_fallback(podcast, result["content"])
 
-    return updates, None, new_cache
+    return updates, None, new_cache, date_unparsed
 
 
 def run_podcast(podcasts_path, cutoff_time, cache, workers=30, link_type="all",
@@ -575,6 +612,7 @@ def run_podcast(podcasts_path, cutoff_time, cache, workers=30, link_type="all",
     checked = 0
     errors = 0
     not_modified = 0
+    date_unparsed_total = 0
     error_details = {}
 
     def process_podcast(podcast):
@@ -633,8 +671,9 @@ def run_podcast(podcasts_path, cutoff_time, cache, workers=30, link_type="all",
             domain = future_to_domain[future]
             try:
                 results = future.result()
-                for podcast, (updates, error_info, cache_entry) in results:
+                for podcast, (updates, error_info, cache_entry, date_unparsed) in results:
                     checked += 1
+                    date_unparsed_total += date_unparsed
                     if error_info:
                         errors += 1
                         error_details[error_info] = error_details.get(error_info, 0) + 1
@@ -664,6 +703,7 @@ def run_podcast(podcasts_path, cutoff_time, cache, workers=30, link_type="all",
         "checked": checked,
         "errors": errors,
         "not_modified": not_modified,
+        "date_unparsed": date_unparsed_total,
         "error_details": error_details,
     }
 
