@@ -71,19 +71,20 @@ plugins/
     skills/
       daily-digest/                   # ★ 日报层：编排 + AI 总结 + 统一日报
         SKILL.md
-        scripts/  (prepare_batches, generate_unified_report)
+        scripts/  (prepare_batches, split_rss_summaries, merge_narratives,
+                   generate_unified_report)
       rss-monitor/                    # 采集层：RSS（微信 + 科技 + 播客）
         SKILL.md
-        scripts/  (_common, check_updates, fetch_feed_list, fetch_articles,
-                   resolve_xiaoyuzhou_urls, merge_summaries*, generate_report*)
+        scripts/  (_common, check_updates, fetch_feed_list, fetch_podcast_list,
+                   fetch_articles, resolve_xiaoyuzhou_urls, merge_summaries)
         references/  (feeds_wechat.json, feeds_tech.json, podcasts.json)
       github-monitor/                 # 采集层：GitHub 动态（PR 合并 + issue）
         SKILL.md
-        scripts/  (_common, check_updates, merge_summaries*, generate_report*)
+        scripts/  (_common, check_updates, merge_summaries)
         references/  (repos.json)
       tool-update-monitor/            # 采集层：工具版本更新
         SKILL.md
-        scripts/  (check_updates, generate_report*)
+        scripts/  (check_updates)
         references/  (tools.json)
 
 workspaces/                           # 运行时产物（gitignored，只保留 .gitkeep）
@@ -101,7 +102,9 @@ workspaces/                           # 运行时产物（gitignored，只保留
       journal_HH-MM.md               # ★ 每日手记
 ```
 
-> 带 `*` 的脚本（`merge_summaries.py` / `generate_report.py`）保留在采集 skill 目录中以供 daily-digest 复用及向后兼容，但采集 skill 的 SKILL.md 不再驱动它们。
+> 各采集 skill 的 `merge_summaries.py` 保留在其目录中以供 daily-digest 复用（合并
+> sub-agent 的批次摘要）；日报渲染统一由 daily-digest 的
+> `generate_unified_report.py` 完成。
 
 ---
 
@@ -131,9 +134,10 @@ daily-digest（日报层 · 编排）
 
 1. 依次触发三个采集 skill 的 `check_updates.py`（数据写到各自 workspace）
 2. 切批 → 并行 sub-agent 做一句话中文摘要 → 复用兄弟 `merge_summaries.py` 合并
-3. 生成 `daily-digest_HH-MM.md`，含三大板块：📰 RSS 信息源 / 🔧 GitHub 动态 / 🛠 工具更新，并可选「今日要点」跨源高亮
+3. 生成 `daily-digest_HH-MM.md`，含六大板块：📊 今日概览 / 🔥 今日重点（文章话题）/
+   🎧 播客精选（逐集）/ 📌 其他动态 / 🔧 GitHub 动态 / 🛠 工具更新
 
-**功能特性**：统一编排 · AI 总结（并行 sub-agent）· 跨源高亮 · 复用兄弟脚本（DRY）· 零依赖
+**功能特性**：统一编排 · AI 总结（并行 sub-agent）· 文章/播客双轨叙事 · 复用兄弟脚本（DRY）· 零依赖
 
 **性能**：冷启动（含采集）~4-6 分钟；热启动（复用当日已采集数据）~1-2 分钟
 
@@ -145,13 +149,13 @@ daily-digest（日报层 · 编排）
 
 | 信息源 | 数量 | 内容 |
 |--------|------|------|
-| **WeChat**（微信公众号） | ~395 via Wechat2RSS | 安全、开发、其他、用户提交 |
+| **WeChat**（微信公众号 + 博客） | ~294 via BestBlogs | 订阅数排序：人工智能、软件编程、商业科技、媒体资讯、产品设计 |
 | **Tech**（科技博客） | ~24 RSS + 2 Hacker News | AI/ML、芯片硬件、云计算、开源、网络安全、综合科技 |
 | **Podcast**（播客） | ~1000（RSS + 小宇宙） | xyzrank.com 中文播客排名 |
 
 **功能特性**：全量采集 · 并发抓取 · ETag 增量缓存 · 广告过滤 · 跨账号去重 · 容错降级 · 零依赖（纯 Python 标准库）
 
-**性能**：全量扫描（395 + 26 + 1000 源）~2-4 分钟；缓存扫描（ETag）~30-60s
+**性能**：全量冷扫描（294 + 26 + 1000 源）~20-25 分钟（由 1000 播客长尾主导）；缓存扫描（ETag）~1-3 分钟
 
 ### GitHub Monitor（采集层 · PR 合并 + issue）
 
@@ -168,7 +172,7 @@ daily-digest（日报层 · 编排）
 
 ### Tool Update Monitor（采集层 · 工具版本）
 
-采集 13 个开发工具和操作系统的新版本发布并保存，按"上次记录版本"增量检测。涵盖四类：AI 编码代理、系统工具、系统更新、网络代理。**只采集，不出报告。**
+采集 14 个开发工具和操作系统的新版本发布并保存，按"上次记录版本"增量检测。涵盖四类：AI 编码代理、系统工具、系统更新、网络代理。**只采集，不出报告。**
 
 **功能特性**：版本增量检测（首次建立 baseline，后续只报新版本）· GitHub Releases API / npm / HTML changelog 多源支持 · ETag 缓存 · 配置驱动（`tools.json` 加减工具无需改代码）· 零依赖
 
