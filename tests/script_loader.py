@@ -47,6 +47,11 @@ def rss_check():
                        "plugins/daily-digest/skills/rss-monitor/scripts/check_updates.py")
 
 
+def rss_resolver():
+    return load_script("rss_resolver_t",
+                       "plugins/daily-digest/skills/rss-monitor/scripts/resolve_xiaoyuzhou_urls.py")
+
+
 def gm_common():
     return load_script("gm_common_t",
                        "plugins/daily-digest/skills/github-monitor/scripts/_common.py")
