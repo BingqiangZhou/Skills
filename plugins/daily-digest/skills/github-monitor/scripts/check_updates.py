@@ -324,6 +324,10 @@ def _paginate(url, label, owner, repo, cache, per_page):
             # from the canonical URL so the next cached page is consulted.
             next_url = _stable_url(url, page + 1)
 
+    if next_url and page >= MAX_PAGES:
+        print(f'  WARNING: {owner}/{repo} {label} stopped at MAX_PAGES='
+              f'{MAX_PAGES}; results may be truncated.', file=sys.stderr)
+
     return items, checked, errors
 
 
