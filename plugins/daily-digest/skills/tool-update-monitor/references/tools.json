@@ -67,6 +67,14 @@
       "repo": "anomalyco/opencode"
     },
     {
+      "id": "deepseek-harness",
+      "name": "DeepSeek Harness",
+      "category": "AI 编码代理 / AI Coding Agents",
+      "source_type": "github",
+      "repo": "deepseek-ai/deepseek-harness",
+      "_comment": "DeepSeek's official agent harness ('Everything is a Plugin'). The repo was created 2026-08-13 and shipped NO GitHub releases yet, so check_updates reports 'no releases' (an expected ERR) until the first tag lands — once it does, the baseline run records it and detection works normally. Drop this note / tune exclude_prerelease once releases exist."
+    },
+    {
       "id": "homebrew",
       "name": "Homebrew",
       "category": "系统工具 / System Tools",

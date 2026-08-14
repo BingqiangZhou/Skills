@@ -1,6 +1,6 @@
 ---
 name: tool-update-monitor
-version: "1.4.0"
+version: "1.5.0"
 description: |
   Collect and save new releases of developer tools and operating systems to
   latest_updates.json. This is the COLLECTION layer only: it detects new
@@ -8,8 +8,8 @@ description: |
   use the daily-digest skill for that.
 
   Covers: ZCode, VS Code, Claude Code, OpenAI Codex CLI, OpenClaw, Hermes
-  Agent, OpenCode, Homebrew, Warp, Clash Verge Rev, v2rayN, Windows 11,
-  macOS. Sources are GitHub Releases, the npm registry, Microsoft's Windows
+  Agent, OpenCode, DeepSeek Harness, Homebrew, Warp, Clash Verge Rev, v2rayN,
+  Windows 11, macOS. Sources are GitHub Releases, the npm registry, Microsoft's Windows
   release-health page, Apple's support page, and (for ZCode) the official
   changelog page.
 
@@ -19,7 +19,7 @@ description: |
   - Any mention of 工具更新 / 版本检查 / 检查更新 / 新版本 / 工具有没有更新（不含"日报/摘要"）
   - System/OS update checks: Windows 11 / 系统更新检查 / macOS / 苹果系统更新 / 补丁 / Patch Tuesday
   - Questions like "zcode/vscode/claude code/codex/openclaw/hermes/opencode/
-    homebrew/warp/clash verge/v2rayn/windows/macOS 最近有更新吗"
+    homebrew/warp/clash verge/v2rayn/windows/macOS/deepseek harness 最近有更新吗"
 
   Do NOT trigger for: generating a digest/report/summary (use daily-digest),
   installing/upgrading the tools themselves, configuring them, general product
