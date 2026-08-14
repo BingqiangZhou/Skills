@@ -86,7 +86,8 @@ def load_json(path):
 
 def generate_unified_report(rss_data, github_data, github_summary_map,
                             tool_data, tool_per_tool, tool_overall,
-                            narrative_data, fallback_overview):
+                            narrative_data, fallback_overview,
+                            narrative_tuple=None):
     """Assemble the unified Markdown report.
 
     Parameters
@@ -103,6 +104,10 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
         overview degrades to ``fallback_overview``.
     fallback_overview : str
         Best-effort overview string used only when no narrative payload.
+    narrative_tuple : tuple | None
+        Precomputed ``build_narrative(narrative_data)`` result — callers that
+        also need the normalized tracks (e.g. main's coverage summary) pass
+        it to avoid normalizing the payload twice.
     """
     now = datetime.now(CST)
     report_time = now.strftime("%Y-%m-%d %H:%M")
@@ -137,8 +142,10 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
         lines.append("")
 
     # --- Overview + 今日重点(文章) + 播客精选 + 其他动态 (or fallback) ---
+    if narrative_tuple is None:
+        narrative_tuple = build_narrative(narrative_data)
     (overview, article_topics, podcast_topics,
-     podcast_episodes, podcast_other, other) = build_narrative(narrative_data)
+     podcast_episodes, podcast_other, other) = narrative_tuple
     has_narrative = bool(overview or article_topics or podcast_topics
                          or podcast_episodes or other)
     expected_podcasts = narrative.expected_podcast_count(rss_data)
@@ -315,10 +322,14 @@ def main():
     if not narrative_data and fallback_overview:
         print("Using fallback overview (no narrative payload).")
 
+    # Normalize the narrative payload ONCE — both the report assembly and
+    # the coverage summary below need the tracks.
+    narr_tuple = build_narrative(narrative_data)
+
     report = generate_unified_report(
         rss_data, github_data, github_summary_map,
         tool_data, tool_per_tool, tool_overall,
-        narrative_data, fallback_overview,
+        narrative_data, fallback_overview, narrative_tuple=narr_tuple,
     )
 
     output_path = Path(args.output)
@@ -339,7 +350,7 @@ def main():
     mode = "narrative" if narrative_data else "fallback"
     # Podcast narrative coverage — surfaces a missing track at a glance.
     if rss_data is not None:
-        _, _, pod_topics, pod_eps, _, _ = build_narrative(narrative_data)
+        _, _, pod_topics, pod_eps, _, _ = narr_tuple
         expected = narrative.expected_podcast_count(rss_data)
         if expected > 0:
             if pod_eps:

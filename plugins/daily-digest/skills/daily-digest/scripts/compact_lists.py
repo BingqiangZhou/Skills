@@ -21,6 +21,21 @@ def fallback_text(text, max_chars=FALLBACK_CHARS):
     return text[:max_chars] + ("..." if len(text) > max_chars else "")
 
 
+def md_link(text, url):
+    """Markdown link with minimal escaping.
+
+    GitHub titles routinely contain ``[``/``]`` (and occasionally parens),
+    which used to terminate the link text early or swallow the following
+    text; parens in a URL break out of the ``(url)`` part. Escaped instead
+    of angle-bracket syntax to keep the Markdown portable.
+    """
+    text = str(text).replace("[", "\\[").replace("]", "\\]")
+    if not url:
+        return text
+    url = str(url).replace("(", "%28").replace(")", "%29")
+    return f"[{text}]({url})"
+
+
 def build_github_summary_map(summaries_data):
     """Build a {item_url: ai_summary} lookup."""
     summaries = (summaries_data.get("summaries")
@@ -73,7 +88,7 @@ def _compact_github_item(update, index, summary_map, lines):
     # Numbered title — link if we have a URL.
     prefix = f"- **{index}.** "
     if url:
-        lines.append(f"{prefix}[{title}]({url})")
+        lines.append(f"{prefix}{md_link(title, url)}")
     else:
         lines.append(f"{prefix}{title}")
 
@@ -113,7 +128,7 @@ def _compact_tool_release(update, index, per_tool_map, lines):
     if prerelease:
         ver_label += " *(pre-release)*"
     # Tool name links directly to the release; no separate 🔗 line.
-    name_label = f"[{name}]({url})" if url else name
+    name_label = md_link(name, url) if url else name
     lines.append(f"- **{index}.** {name_label} {ver_label}")
 
     meta_bits = []
