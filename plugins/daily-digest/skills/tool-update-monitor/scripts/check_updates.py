@@ -146,9 +146,16 @@ def fetch_url(url, cache=None, timeout=TIMEOUT, accept=None, user_agent=None,
                     return None, -1, {}
         return None, e.code, {}
     except Exception as first_err:
-        print(f"fetch_url: primary request failed for {url}: "
-              f"{type(first_err).__name__}: {first_err}", file=sys.stderr)
-        # Retry once with relaxed SSL on network/TLS errors.
+        # Retry once with a relaxed (no-verify) context ONLY when the failure
+        # looks TLS-related — downgrading certificate verification must not
+        # happen for plain timeouts/DNS/reset errors, where it cannot help.
+        if "SSL" not in str(first_err) and "CERTIFICATE" not in str(first_err):
+            print(f"fetch_url: request failed for {url}: "
+                  f"{type(first_err).__name__}: {first_err}", file=sys.stderr)
+            return None, -1, {}
+        print(f"fetch_url: TLS failure for {url} "
+              f"({type(first_err).__name__}); retrying with relaxed SSL",
+              file=sys.stderr)
         try:
             relaxed = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             relaxed.check_hostname = False
@@ -294,7 +301,7 @@ def parse_iso_datetime(s):
         return None
 
 
-def parse_month_date(s, now=None):
+def parse_month_date(s):
     """Parse a 'Released Mon DD, YYYY' style date (e.g. 'Jul 27, 2026') from
     the zcode changelog. Assumes the current year timezone context. Returns an
     aware UTC datetime or None."""
@@ -630,8 +637,11 @@ class _TableParser(HTMLParser):
     """Minimal HTML table extractor (stdlib only).
 
     Collects all <table> elements into self.tables, each as a list of rows;
-    each row is a list of cell strings (header cells use <th>, data <td>,
-    both captured). Strips tags from cell text. Robust to nested tags.
+    each row is a list of cells. Header cells use <th>, data <td>, both
+    captured. Each cell is ``{"text": str, "hrefs": [str]}`` — the anchor
+    hrefs matter because Microsoft's "Latest update" cell hides the KB
+    number in a support.microsoft.com/help/<KB> link, not in the cell text.
+    Robust to nested tags.
     """
 
     def __init__(self):
@@ -641,6 +651,7 @@ class _TableParser(HTMLParser):
         self._cur_row = None
         self._cur_cell = None
         self._cell_pieces = None
+        self._cell_hrefs = None
 
     def handle_starttag(self, tag, attrs):
         if tag == "table":
@@ -650,6 +661,11 @@ class _TableParser(HTMLParser):
         elif tag in ("td", "th") and self._cur_row is not None:
             self._cur_cell = tag
             self._cell_pieces = []
+            self._cell_hrefs = []
+        elif tag == "a" and self._cur_cell is not None:
+            for k, v in attrs:
+                if k == "href" and v:
+                    self._cell_hrefs.append(v)
 
     def handle_endtag(self, tag):
         if tag == "table" and self._cur_table is not None:
@@ -660,9 +676,10 @@ class _TableParser(HTMLParser):
             self._cur_row = None
         elif tag in ("td", "th") and self._cur_cell is not None:
             text = re.sub(r"\s+", " ", "".join(self._cell_pieces)).strip()
-            self._cur_row.append(text)
+            self._cur_row.append({"text": text, "hrefs": self._cell_hrefs})
             self._cur_cell = None
             self._cell_pieces = None
+            self._cell_hrefs = None
 
     def handle_data(self, data):
         if self._cell_pieces is not None:
@@ -717,7 +734,7 @@ def fetch_windows(tool, cache):
     for t in tables:
         if not t:
             continue
-        header = " ".join(t[0]) if t[0] else ""
+        header = " ".join(c["text"] for c in t[0]) if t[0] else ""
         if "Latest build" in header:
             target = t
             break
@@ -725,7 +742,7 @@ def fetch_windows(tool, cache):
         return None, "current-versions table not found"
 
     # Column index lookup from the header row.
-    header = target[0]
+    header = [c["text"] for c in target[0]]
 
     def col(name):
         for i, h in enumerate(header):
@@ -742,20 +759,29 @@ def fetch_windows(tool, cache):
     for row in target[1:]:
         if len(row) <= max(vi, build_i, date_i):
             continue
-        version = row[vi].strip()
+        version = row[vi]["text"].strip()
         if want.lower() not in version.lower():
             continue
-        build = re.sub(r"[^\d.]", "", row[build_i]).strip()
+        build = re.sub(r"[^\d.]", "", row[build_i]["text"]).strip()
         if not build:
             continue
-        published = _iso_date(row[date_i])
+        published = _iso_date(row[date_i]["text"])
         # KB + link: the "Latest update" cell text is like "2026-07 D" with an
-        # anchor to support.microsoft.com/help/<KB>. Pull the KB from the link.
+        # anchor to support.microsoft.com/help/<KB> — the KB number lives in
+        # the HREF, not the cell text, so prefer the link and fall back to a
+        # text regex.
         kb = ""
         if update_i is not None and update_i < len(row):
-            km = re.search(r"KB\s*\d+", row[update_i], re.IGNORECASE)
-            if km:
-                kb = km.group(0).replace(" ", "").upper()
+            cell = row[update_i]
+            for href in cell.get("hrefs", []):
+                km = re.search(r"/help/(?:kb)?(\d{4,})", href, re.IGNORECASE)
+                if km:
+                    kb = f"KB{km.group(1)}"
+                    break
+            if not kb:
+                km = re.search(r"KB\s*(\d{4,})", cell["text"], re.IGNORECASE)
+                if km:
+                    kb = f"KB{km.group(1)}"
         name = f"Windows 11 {version} (build {build})"
         if kb:
             name += f" · {kb}"
@@ -770,7 +796,7 @@ def fetch_windows(tool, cache):
                 "name": name,
                 "body": f"Windows 11 {version} latest cumulative update; "
                         f"build {build}" + (f", {kb}" if kb else "")
-                        + f", revised {row[date_i]}.",
+                        + f", revised {row[date_i]['text']}.",
                 "html_url": tool.get("link_url") or url,
                 "prerelease": False,
                 "kb": kb,
@@ -949,14 +975,26 @@ def load_json(path, default=None):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        # Corrupt state/cache is survivable (worst case: a fresh baseline),
+        # but say so instead of degrading silently.
+        print(f"WARNING: {path} unreadable ({type(e).__name__}: {e}); "
+              f"using default.", file=sys.stderr)
         return default
 
 
 def save_json(path, data):
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    """Write JSON atomically (tmp + os.replace).
+
+    A crash mid-write of the state file would otherwise leave truncated JSON
+    that the next run silently treats as empty — resetting every baseline.
+    """
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(out.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, out)
 
 
 def main():
@@ -1169,7 +1207,7 @@ def _url_for_tool(tool):
         return _github_url(tool["repo"])
     if src == "npm":
         return NPM_API.format(pkg=tool["package"])
-    if src in ("html_changelog", "windows", "macos"):
+    if src in ("html_changelog", "windows"):
         return tool["url"]
     return ""
 
