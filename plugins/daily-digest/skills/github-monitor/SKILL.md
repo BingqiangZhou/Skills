@@ -1,6 +1,6 @@
 ---
 name: github-monitor
-version: "1.1.0"
+version: "1.1.1"
 description: |
   Collect and save new GitHub repository activity — newly merged pull requests
   and/or new issues — to latest_updates.json. This is the COLLECTION layer

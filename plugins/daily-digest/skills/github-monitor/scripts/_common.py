@@ -1,81 +1,40 @@
 """Shared HTTP helpers for the github-monitor scripts.
 
 Kept dependency-free (Python standard library only) to match the rest of the
-skill. Provides SSL context creation, a retrying fetch_url with ETag /
-If-Modified-Since conditional requests, and a github_get helper that targets
-the GitHub REST API (Accept header, optional Bearer token, Link-header
-pagination, X-RateLimit awareness).
+skill. The HTTP/JSON primitives (UA, decode, SSL context, Retry-After
+parsing, atomic JSON writes) live in the plugin-level shared module
+``plugins/daily-digest/shared/http_common.py``; this file adds the GitHub
+layer on top: a retrying fetch_url with ETag / If-Modified-Since conditional
+requests, and a github_get helper targeting the GitHub REST API (Accept
+header, optional Bearer token, Link-header pagination, X-RateLimit awareness).
 """
 
 import json
 import os
 import re
-import ssl
 import sys
 import time
 import random
-import email.utils
 import urllib.request
 import urllib.error
-from datetime import datetime, timezone
+from pathlib import Path
+
+# Plugin-level shared HTTP/JSON primitives (single implementation for the
+# three collector skills; see plugins/daily-digest/shared/http_common.py).
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "shared"))
+import http_common  # noqa: E402
 
 # Shared defaults
 TIMEOUT = 15
 MAX_RETRIES = 2
 
-_CHROME_UA = (
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-)
-
-# Fallback decode order for response bytes.
-_DECODE_ORDER = ['utf-8', 'gbk', 'gb2312', 'latin-1']
-
-
-def create_ssl_context(relaxed=False):
-    """创建 SSL context。relaxed=True 时跳过证书验证（仅用于重试）"""
-    if relaxed:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-    return ssl.create_default_context()
-
-
-def _decode_body(content):
-    """Best-effort decode of response bytes using common Chinese encodings."""
-    for encoding in _DECODE_ORDER:
-        try:
-            return content.decode(encoding)
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return content.decode('utf-8', errors='replace')
-
-
-def _retry_after_seconds(value, default):
-    """Parse a Retry-After header (delay-seconds or HTTP-date) into seconds.
-
-    The int-only parse raised ValueError on the RFC 7231 HTTP-date form.
-    Caps the wait at 60s so a hostile/buggy server cannot stall the run.
-    Returns `default` when the value is missing or unparseable.
-    """
-    if value is None:
-        return default
-    value = value.strip()
-    try:
-        return min(max(int(value), 0), 60)
-    except ValueError:
-        pass
-    try:
-        target = email.utils.parsedate_to_datetime(value)
-    except (TypeError, ValueError):
-        return default
-    if target.tzinfo is None:
-        target = target.replace(tzinfo=timezone.utc)
-    delta = (target - datetime.now(timezone.utc)).total_seconds()
-    if delta <= 0:
-        return 0
-    return min(delta, 60)
+# Re-exported under the historical private names for intra-module callers.
+_CHROME_UA = http_common.CHROME_UA
+_DECODE_ORDER = http_common.DECODE_ORDER
+_decode_body = http_common.decode_body
+create_ssl_context = http_common.create_ssl_context
+_retry_after_seconds = http_common.retry_after_seconds
+save_json_atomic = http_common.save_json_atomic
 
 
 def fetch_url(url, etag=None, last_modified=None, accept=None, max_retries=MAX_RETRIES):

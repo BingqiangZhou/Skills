@@ -27,9 +27,11 @@ Options:
 import argparse
 import glob
 import json
-import os
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import save_json_atomic  # noqa: E402
 
 
 def item_url(item):
@@ -129,13 +131,7 @@ def main():
     output = {"summaries": out_summaries}
 
     output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    # Atomic write: a crash mid-write would leave a truncated file that the
-    # report generator then treats as missing.
-    tmp = output_path.with_name(output_path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, output_path)
+    save_json_atomic(output_path, output)
 
     print(f"\nMerged {len(out_summaries)} unique summaries into {output_path}")
     if total_blank:

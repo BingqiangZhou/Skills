@@ -42,35 +42,17 @@ CST = timezone(timedelta(hours=8))
 #  returns (body, status, cache_entry). 304 = not modified.)
 # ---------------------------------------------------------------------------
 
-_CHROME_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
+# HTTP/JSON primitives come from the plugin-level shared module (single
+# implementation for the three collector skills;
+# see plugins/daily-digest/shared/http_common.py).
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "shared"))
+import http_common  # noqa: E402
+
 TIMEOUT = 30
-
-# Fallback decode order for response bytes (handles non-UTF8 release-note pages).
-_DECODE_ORDER = ["utf-8", "gbk", "gb2312", "latin-1"]
-
-
-def _decode_body(content):
-    """Best-effort decode of response bytes using common encodings."""
-    for encoding in _DECODE_ORDER:
-        try:
-            return content.decode(encoding)
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return content.decode("utf-8", errors="replace")
-
-
-def create_ssl_context():
-    """Create an SSL context with a graceful fallback."""
-    try:
-        return ssl.create_default_context()
-    except Exception:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
+_CHROME_UA = http_common.CHROME_UA
+_DECODE_ORDER = http_common.DECODE_ORDER
+_decode_body = http_common.decode_body
+create_ssl_context = http_common.create_ssl_context
 
 
 def fetch_url(url, cache=None, timeout=TIMEOUT, accept=None, user_agent=None,
@@ -984,17 +966,12 @@ def load_json(path, default=None):
 
 
 def save_json(path, data):
-    """Write JSON atomically (tmp + os.replace).
+    """Write JSON atomically (tmp + os.replace) — shared implementation.
 
     A crash mid-write of the state file would otherwise leave truncated JSON
     that the next run silently treats as empty — resetting every baseline.
     """
-    out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.with_name(out.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, out)
+    http_common.save_json_atomic(path, data)
 
 
 def main():

@@ -50,7 +50,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 # Sibling import: relies on the script being run from the scripts/ directory
 # (cwd) or via the `cd {skill_directory} && python scripts/...` convention.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import github_get, github_token  # noqa: E402
+from _common import github_get, github_token, save_json_atomic  # noqa: E402
 
 GITHUB_API = 'https://api.github.com'
 
@@ -218,12 +218,7 @@ def save_cache(cache_path, cache):
     if not cache_path:
         return
     try:
-        out = Path(cache_path)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = out.with_name(out.name + '.tmp')
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(cache, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, out)
+        save_json_atomic(cache_path, cache)
     except OSError as e:
         print(f'WARNING: could not write cache {cache_path}: {e}', file=sys.stderr)
 
@@ -634,11 +629,7 @@ def main():
     }
 
     out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out_path.with_name(out_path.name + '.tmp')
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, out_path)
+    save_json_atomic(out_path, output)
 
     pr_count = sum(1 for u in all_updates if u['type'] == 'pulls')
     issue_count = len(all_updates) - pr_count
