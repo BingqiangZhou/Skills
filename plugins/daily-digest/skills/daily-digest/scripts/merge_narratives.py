@@ -23,9 +23,15 @@ import json
 import sys
 from pathlib import Path
 
+import io_utils
+
 
 def load_json_safe(path):
-    """Load JSON, return (data, ok). Print a warning on failure."""
+    """Load JSON, return (data, ok). Print a warning on failure.
+
+    UnicodeDecodeError is caught too: it is a ValueError (NOT an OSError),
+    so an editor sub-agent writing GBK used to escape as a traceback.
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f), True
@@ -34,6 +40,10 @@ def load_json_safe(path):
         return {}, False
     except json.JSONDecodeError as e:
         print(f"WARNING: corrupt {path} ({e}); skipping.", file=sys.stderr)
+        return {}, False
+    except (UnicodeDecodeError, OSError) as e:
+        print(f"WARNING: cannot read {path} ({type(e).__name__}: {e}); "
+              f"skipping.", file=sys.stderr)
         return {}, False
 
 
@@ -165,6 +175,10 @@ def main():
 
     articles, _ = load_json_safe(articles_path)
     podcasts, _ = load_json_safe(podcasts_path)
+    if not isinstance(articles, dict):
+        articles = {}
+    if not isinstance(podcasts, dict):
+        podcasts = {}
 
     # Non-destructive merge: each file contributes ONLY its own keys.
     # articles -> overview, article_topics, other
@@ -181,9 +195,7 @@ def main():
     }
 
     out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump(merged, f, ensure_ascii=False, indent=2)
+    io_utils.save_json_atomic(out, merged)
 
     n_art_bad = _warn_unscannable("article", merged["article_topics"])
     n_pod_bad = _warn_unscannable("podcast", merged["podcast_topics"])

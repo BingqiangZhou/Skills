@@ -34,10 +34,13 @@ on hand, but GitHub/tool lists are always rendered from their collector data.
 
 import argparse
 import json
+import os
 import sys
 from collections import OrderedDict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+import io_utils
 
 
 # The audience of these reports is Chinese readers; display times in CST.
@@ -54,13 +57,18 @@ FALLBACK_CHARS = 200            # max chars of description shown when no AI summ
 # ===========================================================================
 
 def load_json(path):
-    """Load a JSON file, return None on missing/corrupt."""
+    """Load a JSON file, return None on missing/corrupt.
+
+    UnicodeDecodeError is caught too: it is a ValueError (NOT an OSError),
+    so a sub-agent writing GBK used to escape this loader as a traceback.
+    """
     if not path:
         return None
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError,
+            UnicodeDecodeError, OSError):
         return None
 
 
@@ -97,10 +105,14 @@ def fmt_cst(ts):
 
 def build_github_summary_map(summaries_data):
     """Build a {item_url: ai_summary} lookup."""
-    if not summaries_data or "summaries" not in summaries_data:
+    summaries = (summaries_data.get("summaries")
+                 if isinstance(summaries_data, dict) else None)
+    if not isinstance(summaries, list):
         return {}
     result = {}
-    for item in summaries_data["summaries"]:
+    for item in summaries:
+        if not isinstance(item, dict):
+            continue
         url = (item.get("item_url") or item.get("pr_url")
                or item.get("issue_url") or "")
         if url:
@@ -277,7 +289,7 @@ def _expected_podcast_count(rss_data):
     """
     if not rss_data:
         return 0
-    return sum(1 for u in rss_data.get("updates", [])
+    return sum(1 for u in (rss_data.get("updates") or [])
                if u.get("source") == "podcast")
 
 
@@ -695,7 +707,7 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
     # Source-count summary line (computed from collector metadata). For tools,
     # count DISTINCT tool_ids (the collector emits one entry per tool, but older
     # output could carry several per tool — collapse to a tool count).
-    rss_count = len(rss_data.get("updates", [])) if rss_data else 0
+    rss_count = len(rss_data.get("updates") or []) if rss_data else 0
     gh_count = (github_data.get("metadata", {}).get("update_count", 0)
                 if github_data else 0)
     tool_meta = tool_data.get("metadata", {}) if tool_data else {}
@@ -743,7 +755,7 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
 
     # Article topics never silently vanish either: if the collector had
     # non-podcast items but no article narrative came back, surface it.
-    expected_articles = (len(rss_data.get("updates", [])) if rss_data else 0) \
+    expected_articles = (len(rss_data.get("updates") or []) if rss_data else 0) \
         - expected_podcasts
     article_placeholder = None
     if not article_topics and expected_articles > 0:
@@ -909,13 +921,15 @@ def main():
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
+    tmp = output_path.with_name(output_path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         f.write(report)
+    os.replace(tmp, output_path)
 
     # Summary of what was rendered
     rendered = []
     if rss_data is not None:
-        rendered.append(f"RSS({len(rss_data.get('updates', []))})")
+        rendered.append(f"RSS({len(rss_data.get('updates') or [])})")
     if github_data is not None:
         rendered.append(f"GitHub({github_data.get('metadata', {}).get('update_count', 0)})")
     if tool_data is not None:

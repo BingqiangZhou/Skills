@@ -31,13 +31,19 @@ import json
 import sys
 from pathlib import Path
 
+import io_utils
+
 
 TEXT_CAP = 1500          # max chars of full_text/body_text put into a batch
 DEFAULT_BATCH_SIZE = 10  # items per batch
 
 
 def load_json(path):
-    """Load a JSON file. Exit with error on missing/corrupt input."""
+    """Load a JSON file. Exit with error on missing/corrupt input.
+
+    UnicodeDecodeError is caught too: it is a ValueError (NOT an OSError),
+    so a GBK-encoded input used to escape this loader as a traceback.
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -46,6 +52,10 @@ def load_json(path):
         sys.exit(1)
     except json.JSONDecodeError as e:
         print(f"Error: cannot parse JSON in {path}: {e}", file=sys.stderr)
+        sys.exit(1)
+    except (UnicodeDecodeError, OSError) as e:
+        print(f"Error: cannot read {path}: {type(e).__name__}: {e}",
+              file=sys.stderr)
         sys.exit(1)
 
 
@@ -182,8 +192,7 @@ def main():
 
     for idx, batch in enumerate(batches):
         out_path = output_dir / f"{args.prefix}_batch_{idx}.json"
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(batch, f, ensure_ascii=False)
+        io_utils.save_json_atomic(out_path, batch, indent=None)
 
     print(f"Saved {len(batches)} batch(es) of <= {args.batch_size} items "
           f"to {output_dir} (prefix '{args.prefix}', {len(updates)} items total).")
