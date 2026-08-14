@@ -1,6 +1,6 @@
 ---
 name: rss-monitor
-version: "1.3.1"
+version: "1.3.2"
 description: |
   Collect and save updates from RSS information sources (WeChat Official
   Accounts, tech blogs, Chinese podcasts). This is the COLLECTION layer only:

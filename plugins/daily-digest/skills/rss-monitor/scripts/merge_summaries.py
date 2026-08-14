@@ -32,6 +32,8 @@ import json
 import sys
 from pathlib import Path
 
+from _common import save_json_atomic
+
 
 # Recognized key fields that hold the item URL across sources.
 _URL_FIELDS = ("article_url", "episode_url", "url", "link")
@@ -41,11 +43,15 @@ _SUMMARY_FIELDS = ("ai_summary", "summary", "summaries")
 
 
 def load_json(path):
-    """Load a JSON file. Returns (data, error). error is None on success."""
+    """Load a JSON file. Returns (data, error). error is None on success.
+
+    UnicodeDecodeError is caught too: it is a ValueError (NOT an OSError),
+    so a sub-agent writing GBK used to escape this loader as a traceback.
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f), None
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
         return None, str(e)
 
 
@@ -169,9 +175,7 @@ def main():
     output = {"summaries": out_summaries}
 
     output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+    save_json_atomic(output_path, output)
 
     print(f"\nMerged {len(out_summaries)} unique summaries into {output_path}")
     if total_blank:

@@ -36,12 +36,12 @@ from _common import (
     strip_html,
     load_cache,
     save_cache,
+    save_json_atomic,
     extract_xiaoyuzhou_episodes,
     parse_duration,
 )
 
 # Named limits
-TEXT_MAX = 2000          # cap for description/shownotes (full_text is uncapped for wechat/tech)
 SHOWNOTES_MAX = 2000     # shownotes truncation (podcast)
 TITLE_SIM_THRESHOLD = 0.7  # Jaccard similarity above which two titles are dupes
 ERROR_RATE_WARN = 0.05   # warn when fetch error rate exceeds this ratio
@@ -828,6 +828,21 @@ def _title_tokens(title):
     return tokens
 
 
+# Token cache for title similarity: the dedup passes compare every title
+# pair (O(n²)), and re-tokenizing both titles for each pair dominated the
+# pass cost — each tokenization walks the title char-by-char with regex
+# matching. Keyed by the title string; bounded by a run's unique titles.
+_TITLE_TOKEN_CACHE = {}
+
+
+def _title_tokens_cached(title):
+    toks = _TITLE_TOKEN_CACHE.get(title)
+    if toks is None:
+        toks = _title_tokens(title)
+        _TITLE_TOKEN_CACHE[title] = toks
+    return toks
+
+
 def _title_similarity(t1, t2):
     """Compute Jaccard similarity between two titles (CJK-aware bigrams).
 
@@ -837,8 +852,8 @@ def _title_similarity(t1, t2):
     """
     if not t1 or not t2:
         return 0.0
-    tokens1 = _title_tokens(t1)
-    tokens2 = _title_tokens(t2)
+    tokens1 = _title_tokens_cached(t1)
+    tokens2 = _title_tokens_cached(t2)
     if not tokens1 or not tokens2:
         return 0.0
     return len(tokens1 & tokens2) / len(tokens1 | tokens2)
@@ -1068,8 +1083,7 @@ def main():
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+    save_json_atomic(output_path, output)
 
     total_updates = len(all_updates)
     total_checked = sum(s["checked"] for s in source_stats.values())

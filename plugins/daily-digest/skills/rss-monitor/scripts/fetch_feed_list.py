@@ -39,7 +39,7 @@ import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
-from _common import _decode_body, create_ssl_context
+from _common import _decode_body, create_ssl_context, save_json_atomic
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 
@@ -286,6 +286,26 @@ def output_age_valid(output_path):
     return False, fetch_time
 
 
+def _warn_stale_keep(output_path, label):
+    """Loudly report that a stale list is being kept after a failed refresh.
+
+    Exit code stays 0 (graceful degradation by design), but the pipeline must
+    be able to TELL "refreshed" from "stale for three weeks" — a quiet note
+    on stdout was invisible to anyone not reading the full transcript.
+    """
+    _, fetch_time = output_age_valid(output_path)
+    age_note = ""
+    if fetch_time:
+        try:
+            age_days = ((datetime.now(timezone.utc)
+                         - datetime.fromisoformat(fetch_time)).total_seconds() / 86400)
+            age_note = f", last refreshed {age_days:.1f} days ago"
+        except ValueError:
+            pass
+    print(f"WARNING: refresh failed; keeping STALE {label}{age_note}: "
+          f"{output_path}", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Fetch the BestBlogs article feed list (tech categories, real-feed URLs)"
@@ -330,7 +350,7 @@ def main():
     except Exception as e:
         print(f"Error fetching source list: {e}", file=sys.stderr)
         if output_path.exists():
-            print(f"Using existing cached feed list: {output_path}")
+            _warn_stale_keep(output_path, "feed list")
             return
         sys.exit(1)
 
@@ -341,16 +361,14 @@ def main():
         print("Error: no feeds passed the filters (ARTICLE + category + real-feed URL).",
               file=sys.stderr)
         if output_path.exists():
-            print(f"Keeping existing cached feed list: {output_path}")
+            _warn_stale_keep(output_path, "feed list")
             return
         sys.exit(1)
 
     fetch_time = datetime.now(timezone.utc).isoformat()
     output = build_output(kept, fetch_time, api_total, categories, stats)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+    save_json_atomic(output_path, output)
 
     meta = output["metadata"]
     print(f"\nFeed list updated: {meta['total_count']} feeds "

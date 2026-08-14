@@ -33,7 +33,7 @@ import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
-from _common import _decode_body, create_ssl_context
+from _common import _decode_body, create_ssl_context, save_json_atomic
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 SOURCE_URL = "https://xyzrank.com/api/podcasts"
@@ -203,6 +203,26 @@ def output_age_valid(output_path):
     return False, fetch_time
 
 
+def _warn_stale_keep(output_path, label):
+    """Loudly report that a stale list is being kept after a failed refresh.
+
+    Exit code stays 0 (graceful degradation by design), but the pipeline must
+    be able to TELL "refreshed" from "stale for three weeks" — a quiet note
+    on stdout was invisible to anyone not reading the full transcript.
+    """
+    _, fetch_time = output_age_valid(output_path)
+    age_note = ""
+    if fetch_time:
+        try:
+            age_days = ((datetime.now(timezone.utc)
+                         - datetime.fromisoformat(fetch_time)).total_seconds() / 86400)
+            age_note = f", last refreshed {age_days:.1f} days ago"
+        except ValueError:
+            pass
+    print(f"WARNING: refresh failed; keeping STALE {label}{age_note}: "
+          f"{output_path}", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Fetch the Top-N Chinese podcast list from xyzrank.com"
@@ -235,7 +255,7 @@ def main():
         print(f"Error fetching podcast list: {e}", file=sys.stderr)
         # If we have an existing output file, keep using it
         if output_path.exists():
-            print(f"Using existing cached podcast list: {output_path}")
+            _warn_stale_keep(output_path, "podcast list")
             return
         sys.exit(1)
 
@@ -253,7 +273,7 @@ def main():
         print("Error: No podcasts with usable links were found in the API response.",
               file=sys.stderr)
         if output_path.exists():
-            print(f"Keeping existing cached podcast list: {output_path}")
+            _warn_stale_keep(output_path, "podcast list")
             return
         sys.exit(1)
 
@@ -261,9 +281,7 @@ def main():
     fetch_time = datetime.now(timezone.utc).isoformat()
     output = build_output(podcasts, fetch_time, site_total)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+    save_json_atomic(output_path, output)
 
     # Print summary
     meta = output["metadata"]

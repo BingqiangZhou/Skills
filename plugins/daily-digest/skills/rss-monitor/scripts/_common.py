@@ -16,8 +16,10 @@ Design decisions (see plan):
 
 import html
 import json
+import os
 import re
 import ssl
+import sys
 import time
 import random
 import urllib.request
@@ -504,12 +506,26 @@ def load_cache(cache_path):
     try:
         with open(cache_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        print(f"WARNING: HTTP cache {cache_path} unreadable; starting empty "
+              f"(ETag history lost).", file=sys.stderr)
         return {}
 
 
 def save_cache(cache_path, cache_data):
-    """Save HTTP cache to JSON file."""
-    Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(cache_path, "w", encoding="utf-8") as f:
-        json.dump(cache_data, f, ensure_ascii=False, indent=2)
+    """Save HTTP cache to JSON file (atomic: tmp + os.replace)."""
+    save_json_atomic(cache_path, cache_data)
+
+
+def save_json_atomic(path, data, indent=2):
+    """Write JSON atomically: tmp file in the target dir, then os.replace.
+
+    A crash mid-write otherwise leaves a truncated file that the next run's
+    load_cache silently discards, invisibly losing the whole ETag history.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=indent)
+    os.replace(tmp, path)

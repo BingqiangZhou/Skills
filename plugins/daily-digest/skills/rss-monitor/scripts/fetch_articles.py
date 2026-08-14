@@ -21,7 +21,6 @@ import re
 import sys
 import time
 import urllib.request
-import urllib.error
 from html.parser import HTMLParser
 from pathlib import Path
 
