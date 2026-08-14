@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.8.1 (2026-08-14)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.8.0...v1.8.1)**
+> 本次发布将 DeepSeek Harness 的版本监控源从 GitHub Releases 改为 npm 包 `@deepseek-ai/dsh`（该仓库不发 Release/tag、只经 npm 发版，当前全为 0.x-rc），使其能正确检测到新版本（原 github 源一直报 'no releases'）；同时把 `git cliff --prepend` 会产生重复 `# Changelog` 头的 gotcha 文档化进 release 流程。
+>
+> 共 2 commits，其中 🚀 Features 1 | 📝 Docs 1
+
+### 🚀 Features
+
+- **tool-update-monitor**: DeepSeek Harness 改用 npm 源获取版本([02b663a](https://github.com/BingqiangZhou/Skills/commit/02b663a4df10b7caf922294cd84dbf8ffdbe2ec7))
+
+### 📝 Documentation
+
+- **release**: Prepend 后删除重复 # Changelog 头([3e75379](https://github.com/BingqiangZhou/Skills/commit/3e753791a9d7ac8f171096f86e38cd264f7a4e3c))
+
 ## v1.8.0 (2026-08-14)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.7.0...v1.8.0)**
 > 本次发布为 tool-update-monitor 新增 DeepSeek Harness（DeepSeek 官方 agent harness，"Everything is a Plugin"）作为监控目标，按 GitHub Releases 源接入、归入「AI 编码代理」分类；该仓库 2026-08-13 才创建、暂无 release，首个 tag 出现后即自动纳入追踪（当前会显示预期的 'no releases'，约占 7% 不触发告警）。
