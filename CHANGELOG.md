@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.8.0 (2026-08-14)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.7.0...v1.8.0)**
+> 本次发布为 tool-update-monitor 新增 DeepSeek Harness（DeepSeek 官方 agent harness，"Everything is a Plugin"）作为监控目标，按 GitHub Releases 源接入、归入「AI 编码代理」分类；该仓库 2026-08-13 才创建、暂无 release，首个 tag 出现后即自动纳入追踪（当前会显示预期的 'no releases'，约占 7% 不触发告警）。
+>
+> 共 1 commits，其中 🚀 Features 1 | 🐛 Fixes 0
+
+### 🚀 Features
+
+- **tool-update-monitor**: 监控 DeepSeek Harness([4ab49b3](https://github.com/BingqiangZhou/Skills/commit/4ab49b3e38368adfea34f9b4256ab581483236e5))
+
 ## v1.7.0 (2026-08-13)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.6.0...v1.7.0)**
 > 本次发布聚焦 daily-digest 报告可读性：「📌 其他动态」由整段密集文字改为加粗主体的 bullet 列表；「🎧 播客精选」由跨节目按主题归并改为每期独立总结、按节目名归拢（多期节目嵌套、琐碎内容尾部收拢），找回每期出处。两项均经真实数据端到端验证，零信息损失。

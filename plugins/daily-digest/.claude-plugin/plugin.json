@@ -1,7 +1,7 @@
 {
   "name": "daily-digest",
   "description": "中文内容更新监控与每日摘要生成 — 三大采集 skill（RSS / GitHub / 工具更新）只采集保存数据，由 daily-digest 编排生成统一 AI Markdown 日报。",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "author": {
     "name": "Bingqiang Zhou"
   },
