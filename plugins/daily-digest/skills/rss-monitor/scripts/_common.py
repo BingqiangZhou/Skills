@@ -16,19 +16,21 @@ Design decisions (see plan):
 
 import html
 import json
-import os
 import re
-import ssl
 import sys
 import time
 import random
 import urllib.request
 import urllib.error
-import email.utils
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
+
+# Plugin-level shared HTTP/JSON primitives (single implementation for the
+# three collector skills; see plugins/daily-digest/shared/http_common.py).
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "shared"))
+import http_common  # noqa: E402
 
 # Repo convention: timestamps are CST (UTC+8). Chinese feeds that omit a
 # timezone offset are emitting local (CST) time, so naive values pin to CST.
@@ -38,70 +40,22 @@ CST = timezone(timedelta(hours=8))
 TIMEOUT = 30
 MAX_RETRIES = 2
 
-_CHROME_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
-
-# Fallback decode order for feed/page bytes (handles Chinese GBK/GB2312 feeds).
-_DECODE_ORDER = ["utf-8", "gbk", "gb2312", "latin-1"]
+# Re-exported under the historical private names — sibling scripts
+# (fetch_feed_list / fetch_podcast_list / fetch_articles) import these.
+_CHROME_UA = http_common.CHROME_UA
+_DECODE_ORDER = http_common.DECODE_ORDER
+_decode_body = http_common.decode_body
+create_ssl_context = http_common.create_ssl_context
+_retry_after_seconds = http_common.retry_after_seconds
+save_json_atomic = http_common.save_json_atomic
 
 
 # ---------------------------------------------------------------------------
 # SSL / HTTP
 # ---------------------------------------------------------------------------
-
-def create_ssl_context(relaxed=False):
-    """Create an SSL context. relaxed=True disables cert verification (retry only)."""
-    if relaxed:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-    try:
-        return ssl.create_default_context()
-    except Exception:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-
-
-def _decode_body(content):
-    """Best-effort decode of response bytes using common Chinese encodings."""
-    for encoding in _DECODE_ORDER:
-        try:
-            return content.decode(encoding)
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return content.decode("utf-8", errors="replace")
-
-
-def _retry_after_seconds(value, default):
-    """Parse a Retry-After header into seconds.
-
-    Per RFC 7231 the value is either delay-seconds or an HTTP-date; the
-    int-only parse used previously raised ValueError on the HTTP-date form.
-    Caps the wait at 60s so a hostile/buggy server cannot stall the run.
-    Returns `default` when the value is missing or unparseable.
-    """
-    if value is None:
-        return default
-    value = value.strip()
-    try:
-        return min(max(int(value), 0), 60)
-    except ValueError:
-        pass
-    try:
-        target = email.utils.parsedate_to_datetime(value)
-    except (TypeError, ValueError):
-        return default
-    if target.tzinfo is None:
-        target = target.replace(tzinfo=timezone.utc)
-    delta = (target - datetime.now(timezone.utc)).total_seconds()
-    if delta <= 0:
-        return 0
-    return min(delta, 60)
+# create_ssl_context / _decode_body / _retry_after_seconds / save_json_atomic
+# live in the plugin-level shared module (see imports above); only the
+# feed-fetching contract with retry/ETag semantics is defined here.
 
 
 def fetch_url(url, etag=None, last_modified=None, accept=None,
@@ -406,33 +360,50 @@ def parse_rss_items(xml_text):
 
         items.append(entry)
 
-    # Atom feeds (entry elements) as fallback
-    ns = {"atom": "http://www.w3.org/2005/Atom"}
-    for entry in root.findall(".//atom:entry", ns):
-        item = {}
+    # Atom feeds (entry elements) as fallback — only when the document had no
+    # RSS <item> elements: a hybrid feed would otherwise be parsed by both
+    # passes and every entry double-counted.
+    if not items:
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        for entry in root.findall(".//atom:entry", ns):
+            item = {}
 
-        title_el = entry.find("atom:title", ns)
-        if title_el is not None and title_el.text:
-            item["title"] = title_el.text.strip()
+            title_el = entry.find("atom:title", ns)
+            if title_el is not None and title_el.text:
+                item["title"] = title_el.text.strip()
 
-        link_el = entry.find("atom:link", ns)
-        if link_el is not None:
-            item["link"] = link_el.get("href", "").strip()
+            # Prefer rel="alternate" (the article itself). Taking the FIRST
+            # link used to grab rel="enclosure"/rel="related" hrefs when they
+            # appear first, pointing the item at media/related URLs instead
+            # of the article.
+            link = ""
+            for link_el in entry.findall("atom:link", ns):
+                href = (link_el.get("href") or "").strip()
+                if not href:
+                    continue
+                rel = (link_el.get("rel") or "alternate").lower()
+                if rel == "alternate":
+                    link = href
+                    break
+                if not link:
+                    link = href
+            if link:
+                item["link"] = link
 
-        # Prefer published, fall back to updated
-        published_el = entry.find("atom:published", ns)
-        updated_el = entry.find("atom:updated", ns)
-        date_el = published_el or updated_el
-        if date_el is not None and date_el.text:
-            item["pub_date_raw"] = date_el.text.strip()
+            # Prefer published, fall back to updated
+            published_el = entry.find("atom:published", ns)
+            updated_el = entry.find("atom:updated", ns)
+            date_el = published_el or updated_el
+            if date_el is not None and date_el.text:
+                item["pub_date_raw"] = date_el.text.strip()
 
-        summary_el = entry.find("atom:summary", ns)
-        content_el = entry.find("atom:content", ns)
-        desc_el = content_el or summary_el
-        if desc_el is not None and desc_el.text:
-            item["description"] = desc_el.text.strip()
+            summary_el = entry.find("atom:summary", ns)
+            content_el = entry.find("atom:content", ns)
+            desc_el = content_el or summary_el
+            if desc_el is not None and desc_el.text:
+                item["description"] = desc_el.text.strip()
 
-        items.append(item)
+            items.append(item)
 
     return items
 
@@ -515,17 +486,3 @@ def load_cache(cache_path):
 def save_cache(cache_path, cache_data):
     """Save HTTP cache to JSON file (atomic: tmp + os.replace)."""
     save_json_atomic(cache_path, cache_data)
-
-
-def save_json_atomic(path, data, indent=2):
-    """Write JSON atomically: tmp file in the target dir, then os.replace.
-
-    A crash mid-write otherwise leaves a truncated file that the next run's
-    load_cache silently discards, invisibly losing the whole ETag history.
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=indent)
-    os.replace(tmp, path)

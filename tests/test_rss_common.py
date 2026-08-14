@@ -108,6 +108,37 @@ class StripHtmlTests(unittest.TestCase):
         self.assertEqual(rss_common().strip_html(""), "")
 
 
+class ParseRssItemsTests(unittest.TestCase):
+    def test_atom_prefers_rel_alternate(self):
+        c = rss_common()
+        atom = ('<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+                '<entry><title>E</title>'
+                '<link rel="enclosure" href="https://cdn.example/a.mp3"/>'
+                '<link rel="alternate" href="https://example.com/ep1"/>'
+                '<published>2026-08-13T10:00:00Z</published></entry></feed>')
+        items = c.parse_rss_items(atom)
+        self.assertEqual(items[0]["link"], "https://example.com/ep1")
+
+    def test_atom_without_rel_keeps_first_href(self):
+        c = rss_common()
+        atom = ('<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+                '<entry><title>E</title>'
+                '<link href="https://example.com/ep1"/></entry></feed>')
+        items = c.parse_rss_items(atom)
+        self.assertEqual(items[0]["link"], "https://example.com/ep1")
+
+    def test_hybrid_feed_not_double_counted(self):
+        c = rss_common()
+        hybrid = ('<?xml version="1.0"?>'
+                  '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">'
+                  '<channel><item><title>RSS item</title></item>'
+                  '<atom:entry><atom:title>Atom entry</atom:title></atom:entry>'
+                  '</channel></rss>')
+        items = c.parse_rss_items(hybrid)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["title"], "RSS item")
+
+
 class CacheIoTests(unittest.TestCase):
     def test_atomic_save_and_load_roundtrip(self):
         import tempfile

@@ -134,16 +134,19 @@ def fetch_page(page, page_size, max_retries=3):
     raise RuntimeError(f"page {page} failed after {max_retries} retries: {last_err}")
 
 
-def fetch_all_sources(page_size, delay):
+def fetch_all_sources(page_size, delay, max_pages=50):
     """Page through the API until the server's pageCount is reached.
 
     Returns (sources, api_total). Each source keeps the raw API field names
     (resourceType / countInPast3Months / …); map_fields() normalizes them.
+    ``max_pages`` bounds the loop: an API response that omits ``pageCount``
+    while returning a non-empty ``dataList`` (e.g. echoing the same page)
+    would otherwise never terminate.
     """
     collected = []
     api_total = page_count = None
     page = 1
-    while True:
+    while page <= max_pages:
         data = fetch_page(page, page_size)
         if api_total is None:
             api_total = data.get("totalCount")
@@ -158,7 +161,11 @@ def fetch_all_sources(page_size, delay):
         if page_count and page >= page_count:
             break
         page += 1
-        time.sleep(delay + random.uniform(-0.2, 0.3))
+        time.sleep(max(0.0, delay + random.uniform(-0.2, 0.3)))
+    else:
+        print(f"WARNING: stopped after max_pages={max_pages} "
+              f"(pageCount={page_count}); list may be truncated.",
+              file=sys.stderr)
     return collected, (api_total if api_total is not None else len(collected))
 
 

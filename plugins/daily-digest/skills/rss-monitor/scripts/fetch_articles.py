@@ -54,8 +54,13 @@ class _TextExtractor(HTMLParser):
         return re.sub(r"\s+", " ", text).strip()
 
 
-def fetch_html(url, timeout=30):
-    """Fetch HTML content from a URL. Returns text or None on failure."""
+def fetch_html(url, timeout=30, max_retries=1):
+    """Fetch HTML content from a URL. Returns text or None on failure.
+
+    Retries once with a short backoff — this used to be the only network
+    path in the skill without any retry, so enrichment silently degraded on
+    a single blip.
+    """
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -65,14 +70,18 @@ def fetch_html(url, timeout=30):
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     }
     req = urllib.request.Request(url, headers=headers)
-    try:
-        ctx = create_ssl_context()
-        with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
-            return _decode_body(resp.read())
-    except Exception as e:
-        print(f"fetch_html: failed for {url}: {type(e).__name__}: {e}",
-              file=sys.stderr)
-        return None
+    for attempt in range(max_retries + 1):
+        try:
+            ctx = create_ssl_context()
+            with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
+                return _decode_body(resp.read())
+        except Exception as e:
+            if attempt < max_retries:
+                time.sleep(1.0 + random.uniform(0, 1))
+                continue
+            print(f"fetch_html: failed for {url}: {type(e).__name__}: {e}",
+                  file=sys.stderr)
+            return None
 
 
 def extract_wechat_content(html):
