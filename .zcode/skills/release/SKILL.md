@@ -1,6 +1,6 @@
 ---
 name: release
-version: "1.0"
+version: "1.1"
 description: 项目发布工具。分析 git 历史、检测 Skill 变更、通过 git-cliff 生成 CHANGELOG.md、同步 plugin.json 版本号、创建 git tag 并推送。推送后 GitHub Action 自动创建 Release。基于语义化版本号（如 v1.0.0，详见 Step 1 规则）。**触发场景**：用户提到"发布""release""发版""打 tag""生成 changelog""更新版本""发布新版本""创建 release"，或需要将当前项目状态发布为新版本时使用。
 ---
 
@@ -155,6 +155,17 @@ GitHub Release 由 `.github/workflows/release.yml` 自动创建，无需本地�
    > （或 `-u`）时直接报 `Error: ArgumentError("'-u' or '-l' is not specified")`
    > 中止，且**不会改动 CHANGELOG.md**。Step 2 的预览命令已自带，这里务必
    > 同步带上，否则 `--prepend` / `-o` 都不会执行。
+
+   > ⚠️ **`--prepend` 会塞进重复的 `# Changelog` 头，必须手动删除。**
+   > git-cliff 2.13.1 的 `--prepend` 把本次**完整输出**（含开头的
+   > `# Changelog` + `All notable changes…` 介绍行头）整体插到现有文件最前面；
+   > 而现有 CHANGELOG.md 本身就以这个头开头，结果文件里出现**两个**
+   > `# Changelog` 头——新版本段落之后、上一个 `## vX.Y.Z` 之前会多出一个
+   > 重复头块。**修复**：用 Edit 把新版本最后一条 bullet 直接连到上一个
+   > `## vX.Y.Z`（中间留一个空行）：匹配
+   > `<最后一条 bullet>\n# Changelog\n\nAll notable changes will be documented in this file.\n\n## v<上一版本>`
+   > 替换为 `<最后一条 bullet>\n\n## v<上一版本>`。**验证**：
+   > `grep -c '^# Changelog' CHANGELOG.md` 必须为 1（首次发布用 `-o` 全量生成则无此问题）。
 
 4. **校验历史版本未丢失**（生成后必须执行）：
    ```bash
