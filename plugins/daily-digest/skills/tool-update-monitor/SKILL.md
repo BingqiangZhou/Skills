@@ -1,6 +1,6 @@
 ---
 name: tool-update-monitor
-version: "1.6.3"
+version: "1.6.4"
 description: |
   Collect and save new releases of developer tools and operating systems to
   latest_updates.json. This is the COLLECTION layer only: it detects new

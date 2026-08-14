@@ -408,18 +408,31 @@ def _fetch_github_release_body(repo, version, cache):
     Tries both ``v{version}`` and ``{version}`` tag forms — npm tags lack the
     ``v`` prefix GitHub releases often use. Returns the body text, or '' if the
     release / tag is not found (non-fatal — the tool still reports the version).
+
+    The notes text is cached alongside the ETag: a 304 replay returns the
+    previously fetched notes instead of silently degrading to '' (these
+    secondary URLs used to discard their validators and re-download in full
+    every run they were needed).
     """
     token = os.environ.get("GITHUB_ACCESS_TOKEN")
     for tag in (f"v{version}", version):
         url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+        entry = cache.get(url) if isinstance(cache, dict) else None
+        cached_notes = entry.get("notes") if isinstance(entry, dict) else None
         try:
-            rbody, rstatus, _ = fetch_url_with_retry(
+            rbody, rstatus, new_cache = fetch_url_with_retry(
                 url, cache=cache, accept="application/vnd.github+json",
                 user_agent="tool-update-monitor/1.0", bearer_token=token,
             )
         except Exception:
+            if cached_notes:
+                return cached_notes
             continue
-        if not rbody or rstatus == 304:
+        if rstatus == 304:
+            if cached_notes:
+                return cached_notes
+            continue
+        if not rbody:
             continue
         try:
             data = json.loads(rbody)
@@ -427,6 +440,10 @@ def _fetch_github_release_body(repo, version, cache):
             continue
         notes = (data.get("body") or "").strip()
         if notes:
+            if isinstance(cache, dict):
+                merged = dict(new_cache or {})
+                merged["notes"] = notes
+                cache[url] = merged
             return notes
     return ""
 
@@ -530,22 +547,32 @@ def _enrich_url_only_body(body, cache):
     highlights used to say "release 未附明细". When the body is just such a
     URL, fetch it and convert the page to text so the real changes are
     summarized. On any failure, return the original body unchanged.
+
+    The extracted text is cached alongside the ETag: a 304 replay returns the
+    previously extracted text instead of the bare URL (these secondary URLs
+    used to discard their validators and re-download the full page every run).
     """
     url = _looks_like_url_only(body)
     if not url:
         return body
+    entry = cache.get(url) if isinstance(cache, dict) else None
+    cached_text = entry.get("text") if isinstance(entry, dict) else None
     try:
-        page_html, status, _ = fetch_url_with_retry(url, cache=cache)
+        page_html, status, new_cache = fetch_url_with_retry(url, cache=cache)
     except Exception:
-        return body
+        return cached_text or body
     if not page_html or status == 304:
-        return body
+        return cached_text or body
     # Start at the first content landmark to skip nav/header chrome.
     low = page_html.lower()
     landmarks = [low.find(t) for t in ("<h1", "<main", "<article")]
     start = min((p for p in landmarks if p >= 0), default=0)
     extracted = _html_block_to_text(page_html[start:])
-    return extracted or body
+    if extracted and isinstance(cache, dict):
+        merged = dict(new_cache or {})
+        merged["text"] = extracted
+        cache[url] = merged
+    return extracted or cached_text or body
 
 
 def fetch_html_changelog(tool, cache):
@@ -1008,6 +1035,16 @@ def main():
         sys.exit(2)
 
     tools = config["tools"]
+    # A malformed entry (missing 'id') would raise inside the worker and
+    # propagate through ex.map, killing the whole run.
+    valid_tools = []
+    for t in tools:
+        if isinstance(t, dict) and t.get("id"):
+            valid_tools.append(t)
+        else:
+            print(f"WARNING: skipping malformed tools.json entry: {t!r}",
+                  file=sys.stderr)
+    tools = valid_tools
     cat_order = config.get("categories_order", [])
     if args.category:
         tools = [t for t in tools if args.category.lower() in t.get("category", "").lower()]
