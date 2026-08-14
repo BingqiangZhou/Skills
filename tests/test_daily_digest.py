@@ -6,7 +6,42 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from script_loader import gur, mn, pb  # noqa: E402
+from script_loader import gur, mn, pb, narrative_mod  # noqa: E402
+
+
+class PodcastEpisodeLinkTests(unittest.TestCase):
+    def test_title_linked_when_url_present(self):
+        n = narrative_mod()
+        lines = []
+        n.render_podcast_episodes(
+            lines, "🎧 播客精选",
+            [{"show": "秀", "title": "第 1 期", "summary": "内容",
+              "url": "https://www.xiaoyuzhoufm.com/episode/e1"}],
+            [], [], missing_placeholder=None)
+        text = "\n".join(lines)
+        self.assertIn("[第 1 期](https://www.xiaoyuzhoufm.com/episode/e1)：内容", text)
+
+    def test_title_with_brackets_still_links(self):
+        n = narrative_mod()
+        lines = []
+        n.render_podcast_episodes(
+            lines, "🎧 播客精选",
+            [{"show": "秀", "title": "聊聊 [AI] 与Agent", "summary": "内容",
+              "url": "https://x/e(1)"}],
+            [], [], missing_placeholder=None)
+        text = "\n".join(lines)
+        self.assertIn("\\[AI\\]", text)
+        self.assertIn("%28", text)
+
+    def test_no_url_renders_plain_title(self):
+        n = narrative_mod()
+        lines = []
+        n.render_podcast_episodes(
+            lines, "🎧 播客精选",
+            [{"show": "秀", "title": "第 2 期", "summary": "内容", "url": ""}],
+            [], [], missing_placeholder=None)
+        text = "\n".join(lines)
+        self.assertIn("- **秀** · 第 2 期：内容", text)
 
 
 class MergeToolUpdatesTests(unittest.TestCase):

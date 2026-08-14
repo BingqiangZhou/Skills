@@ -14,6 +14,8 @@ payload and its rendering:
 - renderers draw the 今日概览 / 今日重点 / 播客精选 / 其他动态 sections.
 """
 
+from io_utils import md_link
+
 
 def normalize_topics(raw_topics):
     """Turn a raw topics list into [{title, lead, bullets, narrative}].
@@ -215,7 +217,11 @@ def render_topic_list(lines, heading, topics, missing_placeholder=None):
 
 
 def _fmt_episode(title, summary):
-    """One episode as 'title：summary' (whichever parts are present)."""
+    """One episode as 'title：summary' (whichever parts are present).
+
+    ``title`` may already be a linked label (``[标题](url)``) — the caller
+    linkifies it when the episode carries a URL.
+    """
     if title and summary:
         return f"{title}：{summary}"
     return title or summary
@@ -250,7 +256,10 @@ def render_podcast_episodes(lines, heading, episodes, other_episodes,
             show = (ep.get("show") or "").strip()
             title = (ep.get("title") or "").strip()
             summary = (ep.get("summary") or "").strip()
-            body = _fmt_episode(title, summary)
+            url = (ep.get("url") or "").strip()
+            # Episode title links to the episode itself: [标题](url).
+            label = md_link(title, url) if url else title
+            body = _fmt_episode(label, summary)
             if not show:
                 if body:
                     standalone.append(body)

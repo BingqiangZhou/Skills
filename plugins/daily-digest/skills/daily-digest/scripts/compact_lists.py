@@ -8,7 +8,7 @@ narrative — each item renders as one tight block with its link and key note.
 
 from collections import OrderedDict
 
-from io_utils import fmt_cst
+from io_utils import fmt_cst, md_link  # noqa: F401  (md_link re-exported)
 
 # Max chars of body text shown when no AI summary is available.
 FALLBACK_CHARS = 200
@@ -19,21 +19,6 @@ def fallback_text(text, max_chars=FALLBACK_CHARS):
     if not text:
         return ""
     return text[:max_chars] + ("..." if len(text) > max_chars else "")
-
-
-def md_link(text, url):
-    """Markdown link with minimal escaping.
-
-    GitHub titles routinely contain ``[``/``]`` (and occasionally parens),
-    which used to terminate the link text early or swallow the following
-    text; parens in a URL break out of the ``(url)`` part. Escaped instead
-    of angle-bracket syntax to keep the Markdown portable.
-    """
-    text = str(text).replace("[", "\\[").replace("]", "\\]")
-    if not url:
-        return text
-    url = str(url).replace("(", "%28").replace(")", "%29")
-    return f"[{text}]({url})"
 
 
 def build_github_summary_map(summaries_data):

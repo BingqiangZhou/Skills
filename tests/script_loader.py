@@ -80,3 +80,8 @@ def pb():
 def mn():
     return load_script("mn_t",
                        "plugins/daily-digest/skills/daily-digest/scripts/merge_narratives.py")
+
+
+def narrative_mod():
+    return load_script("narrative_t",
+                       "plugins/daily-digest/skills/daily-digest/scripts/narrative.py")

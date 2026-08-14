@@ -59,6 +59,22 @@ def fmt_cst(ts, fmt="%Y-%m-%d %H:%M"):
     return dt.astimezone(CST).strftime(fmt)
 
 
+def md_link(text, url):
+    """Markdown link with minimal escaping.
+
+    Titles from collectors/editors routinely contain ``[``/``]`` (and
+    occasionally parens), which would otherwise terminate the link text
+    early or swallow the following text; parens in a URL break out of the
+    ``(url)`` part. Escaped instead of angle-bracket syntax to keep the
+    Markdown portable. With no url, returns the escaped text as-is.
+    """
+    text = str(text).replace("[", "\\[").replace("]", "\\]")
+    if not url:
+        return text
+    url = str(url).replace("(", "%28").replace(")", "%29")
+    return f"[{text}]({url})"
+
+
 def save_json_atomic(path, data, indent=2):
     """Write ``data`` as JSON to ``path`` atomically (tmp + os.replace).
 
