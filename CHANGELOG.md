@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## v1.9.0 (2026-08-14)
+**[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.8.1...v1.9.0)**
+> 本次发布是一次全面的质量与架构整备：修复了日报管线十余处正确性问题（时区统一 CST、GitHub ETag 缓存真正命中 304、工具基线死锁、旧批次污染日报、Windows KB 提取、enrichment 重复下载等），并将 950 行报告生成器拆分为 narrative/compact_lists 模块、三个采集 skill 的 HTTP 原语收敛为 plugin 级共享模块 shared/http_common；新增 github-monitor 仓库级并发拉取与播客剧集名链接化两项能力，并建立 80 例单元测试套件作为后续重构的安全网。
+>
+> 共 19 commits，其中 🚀 Features 2 | 🐛 Fixes 12 | 🔨 Refactor 2 | 🧪 Testing 2 | 📝 Docs 1
+>
+> **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.8.1...v1.9.0)**
+
+### 🚀 Features
+
+- **github-monitor**: 仓库级并发拉取，repos.json 损坏不再静默回退默认([82fc471](https://github.com/BingqiangZhou/Skills/commit/82fc471164b901bb9f19317c12407370d9d40706))
+- **daily-digest**: 播客剧集名链接化为 [剧集名](单集链接)([b1cc8d3](https://github.com/BingqiangZhou/Skills/commit/b1cc8d328c55d662ca17fcf34caf073cbd1dc72d))
+
+### 🐛 Bug Fixes
+
+- **rss-monitor**: 时区统一 CST、单源运行不再清空其他源缓存、Retry-After 兼容 HTTP-date([02cd67b](https://github.com/BingqiangZhou/Skills/commit/02cd67bdd79eeeb0f453663cbc118f61ef745eac))
+- **github-monitor**: 缓存键剥离 since 使 ETag 真正命中、403 主限流处理、CST 输出([4dc36e6](https://github.com/BingqiangZhou/Skills/commit/4dc36e6e7fb396f7a1ee8595e80f2baf95d25d15))
+- **tool-update-monitor**: 修复 304 + 空 state 的 baseline 死锁、403 限流处理、CST 输出([6b831b6](https://github.com/BingqiangZhou/Skills/commit/6b831b6c8c6afae9279561dfa91d4fa20b9092f1))
+- **daily-digest**: Prepare_batches 清理旧批次防污染、版本合并改数值比较、播客文档同步([295aa2c](https://github.com/BingqiangZhou/Skills/commit/295aa2c36f0bf0917aedd1df7723c9cc95015a10))
+- **rss-monitor**: JSON 写出原子化、加载器捕获 UnicodeDecodeError、陈旧列表降级显式告警([b7445b4](https://github.com/BingqiangZhou/Skills/commit/b7445b4d67e9f5ed00e267304cbb896e4d8f4e33))
+- **tool-update-monitor**: Windows KB 号从链接中正确提取、TLS 降级仅限 SSL 类错误、写出原子化([c5bd43a](https://github.com/BingqiangZhou/Skills/commit/c5bd43af761fd6a6aee842862696865aae277a7a))
+- **daily-digest**: 加载器捕获 UnicodeDecodeError、JSON/报告写出原子化、null 形状防御([b5bb153](https://github.com/BingqiangZhou/Skills/commit/b5bb1530d24ed6e9722e1a95e8eb69b794b40bbb))
+- **rss-monitor**: Atom 链接优先 rel=alternate、混合 feed 防双计数；HTTP 原语收敛至 plugin 级共享模块([7dc8aaa](https://github.com/BingqiangZhou/Skills/commit/7dc8aaadc7272709c2da793d5c0ace97610ad1b4))
+- **rss-monitor**: Resolver 失败不再双计数、早退路径也清理 UTM 后缀；undated 条目全路径统计([f909197](https://github.com/BingqiangZhou/Skills/commit/f90919775417b790a777d7f91aedb56039eeca16))
+- **github-monitor**: 分页达到 MAX_PAGES 时输出截断告警([2d0f28a](https://github.com/BingqiangZhou/Skills/commit/2d0f28aec9908313b93c9b3743cd830eb4acde06))
+- **tool-update-monitor**: Enrichment 二级 URL 缓存验证器与提取文本，304 复用不再全量重下([6cb7bed](https://github.com/BingqiangZhou/Skills/commit/6cb7beda66baf7dd168ec06b9feaf4890f5c2a52))
+- **daily-digest**: Markdown 链接转义；narrative 载荷只归一化一次([5b3dccd](https://github.com/BingqiangZhou/Skills/commit/5b3dccd757258c0ba98e904e03363e9af8b8999c))
+
+### 🔨 Refactor
+
+- **daily-digest**: 拆分 generate_unified_report 为 narrative/compact_lists，normalizer 收敛为单一实现([af5b57b](https://github.com/BingqiangZhou/Skills/commit/af5b57b5f41fc320ea048f2d0925652c6070830d))
+- Github-monitor / tool-update-monitor 复用 plugin 级 http_common([4d54e9d](https://github.com/BingqiangZhou/Skills/commit/4d54e9d9eaa624a5103857f4da43ff8a12da4010))
+
+### 📝 Documentation
+
+- README 同步现状（BestBlogs 294 源、14 个工具、现行报告板块与脚本清单）([814da9a](https://github.com/BingqiangZhou/Skills/commit/814da9a3d678b676247eec7377f8a7c370c64ff9))
+
+### 🧪 Testing
+
+- 新增单测套件（67 例）覆盖纯函数与关键路径([c1174c6](https://github.com/BingqiangZhou/Skills/commit/c1174c6654088dc08af84e0ae121e7efb9b9a8d9))
+- 补 follow-up 修复用例（enrichment 缓存、resolver 计数/清理、date_unparsed、md_link）([07689b3](https://github.com/BingqiangZhou/Skills/commit/07689b32894a74c6547411aeb4f2ee1079742928))
+
 ## v1.8.1 (2026-08-14)
 **[Full diff](https://github.com/BingqiangZhou/Skills/compare/v1.8.0...v1.8.1)**
 > 本次发布将 DeepSeek Harness 的版本监控源从 GitHub Releases 改为 npm 包 `@deepseek-ai/dsh`（该仓库不发 Release/tag、只经 npm 发版，当前全为 0.x-rc），使其能正确检测到新版本（原 github 源一直报 'no releases'）；同时把 `git cliff --prepend` 会产生重复 `# Changelog` 头的 gotcha 文档化进 release 流程。
