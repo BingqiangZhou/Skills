@@ -70,9 +70,11 @@
       "id": "deepseek-harness",
       "name": "DeepSeek Harness",
       "category": "AI 编码代理 / AI Coding Agents",
-      "source_type": "github",
-      "repo": "deepseek-ai/deepseek-harness",
-      "_comment": "DeepSeek's official agent harness ('Everything is a Plugin'). The repo was created 2026-08-13 and shipped NO GitHub releases yet, so check_updates reports 'no releases' (an expected ERR) until the first tag lands — once it does, the baseline run records it and detection works normally. Drop this note / tune exclude_prerelease once releases exist."
+      "source_type": "npm",
+      "package": "@deepseek-ai/dsh",
+      "changelog_repo": "deepseek-ai/deepseek-harness",
+      "link_url": "https://github.com/deepseek-ai/deepseek-harness/releases",
+      "_comment": "DeepSeek 官方 agent harness ('Everything is a Plugin')，npm 包 @deepseek-ai/dsh（README: npx @deepseek-ai/dsh web）。用 npm 源而非 github：该 GitHub repo (2026-08-13 创建) 不发 GitHub Release/tag，只经 npm 发版，且当前全为 0.x-rc 预发布（dist-tags.latest 即 rc，0.1.0-rc.6）。fetch_npm 读 dist-tags.latest 取版本；changelog_repo 暂取不到 notes（repo 无 release，body 为空，非致命），待其建 GitHub Release 后自动补充。"
     },
     {
       "id": "homebrew",
