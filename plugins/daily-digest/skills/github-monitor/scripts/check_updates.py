@@ -37,9 +37,11 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
@@ -116,7 +118,9 @@ def load_repos(repos_path, override_owner=None, override_repo=None):
 
     Returns a list of repo config dicts. If override_owner/override_repo are
     given, returns a single ad-hoc entry monitoring both pulls and issues with
-    no filter. Falls back to DEFAULT_REPOS if the file is missing or invalid.
+    no filter. Falls back to DEFAULT_REPOS if the file is missing or invalid —
+    with a loud stderr WARNING, so a typo'd repos.json never silently monitors
+    different repos than configured.
     """
     if override_owner and override_repo:
         return [{'owner': override_owner, 'repo': override_repo,
@@ -127,8 +131,14 @@ def load_repos(repos_path, override_owner=None, override_repo=None):
             repos = json.load(f)
         if isinstance(repos, list) and repos:
             return repos
-    except (OSError, json.JSONDecodeError):
-        pass
+        print(f'WARNING: {repos_path} is valid JSON but not a non-empty '
+              f'list; falling back to default repos.', file=sys.stderr)
+    except FileNotFoundError:
+        print(f'WARNING: {repos_path} not found; falling back to default '
+              f'repos.', file=sys.stderr)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        print(f'WARNING: cannot read {repos_path} ({type(e).__name__}: {e}); '
+              f'falling back to default repos.', file=sys.stderr)
     return DEFAULT_REPOS
 
 
@@ -193,19 +203,27 @@ def load_cache(cache_path):
             cache = json.load(f)
         if isinstance(cache, dict):
             return cache
-    except (OSError, json.JSONDecodeError):
-        pass
+        print(f'WARNING: cache {cache_path} is not a JSON object; '
+              f'starting empty.', file=sys.stderr)
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        print(f'WARNING: cache {cache_path} unreadable '
+              f'({type(e).__name__}: {e}); starting empty.', file=sys.stderr)
     return {}
 
 
 def save_cache(cache_path, cache):
-    """Persist the cache. No-op if no path given."""
+    """Persist the cache atomically (tmp + os.replace). No-op if no path."""
     if not cache_path:
         return
     try:
-        Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_path, 'w', encoding='utf-8') as f:
+        out = Path(cache_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_name(out.name + '.tmp')
+        with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, out)
     except OSError as e:
         print(f'WARNING: could not write cache {cache_path}: {e}', file=sys.stderr)
 
@@ -496,18 +514,22 @@ def main():
             repo_acc[repo_key] = b
         return b
 
-    for repo_cfg in repos:
+    def fetch_repo(repo_cfg):
+        """Fetch ONE repo's activity (its kinds sequentially). Network only.
+
+        Filtering, dedup and stats stay in the main thread afterwards, in
+        repos.json order, so the output is deterministic regardless of fetch
+        completion order. Returns None for config entries without owner/repo.
+        """
         owner = repo_cfg.get('owner')
         repo = repo_cfg.get('repo')
         if not owner or not repo:
-            continue
+            return None
         repo_key = f'{owner}/{repo}'
-        display_name = repo_cfg.get('name') or repo_key
         types = monitor_types(repo_cfg)
         # Issue filter applies only to issues; PRs are filtered by merged_at.
         repo_filter = RepoFilter(repo_cfg.get('filter'))
-        bucket = repo_bucket(repo_key, display_name)
-
+        kinds = []
         for kind in types:
             if kind == 'issues':
                 items, checked, errors = fetch_issues(
@@ -515,6 +537,26 @@ def main():
             else:  # 'pulls'
                 items, checked, errors = fetch_merged_prs(
                     owner, repo, since_iso, cache, per_page=args.per_page)
+            kinds.append((kind, items, checked, errors))
+        return {'repo_key': repo_key, 'owner': owner, 'repo': repo,
+                'display_name': repo_cfg.get('name') or repo_key,
+                'types': types, 'filter': repo_filter, 'kinds': kinds}
+
+    # Repos are fetched concurrently (each repo's kinds stay sequential).
+    # The shared `cache` dict needs no locking under CPython's GIL: workers
+    # only do single-key reads/writes on disjoint endpoint keys (same
+    # pattern as rss-monitor's parallel sources).
+    with ThreadPoolExecutor(max_workers=min(len(repos), 4)) as ex:
+        repo_results = [r for r in ex.map(fetch_repo, repos) if r]
+
+    for res in repo_results:
+        repo_key = res['repo_key']
+        owner = res['owner']
+        repo = res['repo']
+        repo_filter = res['filter']
+        bucket = repo_bucket(repo_key, res['display_name'])
+
+        for kind, items, checked, errors in res['kinds']:
             total_checked += checked
             total_errors.extend(errors)
             bucket['checked'] += checked
@@ -546,7 +588,7 @@ def main():
 
         print(f'{repo_key}: {bucket["kept"]} kept, '
               f'{bucket["filtered_out"]} filtered out '
-              f'(monitor={types})\n')
+              f'(monitor={res["types"]})\n')
 
     # Group by repo in repos.json order, newest-first within each group.
     # Two stable sorts (Python sorts are stable): first newest-first by
@@ -593,8 +635,10 @@ def main():
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, 'w', encoding='utf-8') as f:
+    tmp = out_path.with_name(out_path.name + '.tmp')
+    with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, out_path)
 
     pr_count = sum(1 for u in all_updates if u['type'] == 'pulls')
     issue_count = len(all_updates) - pr_count

@@ -1,6 +1,6 @@
 ---
 name: github-monitor
-version: "1.0.7"
+version: "1.1.0"
 description: |
   Collect and save new GitHub repository activity — newly merged pull requests
   and/or new issues — to latest_updates.json. This is the COLLECTION layer
@@ -177,6 +177,9 @@ For each repo, `check_updates.py` applies these rules per activity type:
 |-------|------|
 | Activity fetch (per repo, 1 page, ETag cached) | ~1-2s |
 
+Repos are fetched **concurrently** (up to 4 at a time; each repo's pulls/issues
+stay sequential); filtering, dedup and stats run afterwards in `repos.json`
+order, so output is deterministic regardless of fetch completion order.
 A 24-hour window typically yields a single API page (`per_page=100`) per repo;
 the script paginates automatically if a repo exceeds that. Many repos share
 the same rate-limit budget, so set `GITHUB_ACCESS_TOKEN` when monitoring

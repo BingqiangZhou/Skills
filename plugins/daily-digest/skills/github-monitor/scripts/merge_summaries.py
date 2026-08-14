@@ -27,6 +27,7 @@ Options:
 import argparse
 import glob
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -44,11 +45,15 @@ def item_url(item):
 
 
 def load_json(path):
-    """Load a JSON file. Returns (data, error). error is None on success."""
+    """Load a JSON file. Returns (data, error). error is None on success.
+
+    UnicodeDecodeError is caught too: it is a ValueError (NOT an OSError),
+    so a sub-agent writing GBK used to escape this loader as a traceback.
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f), None
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
         return None, str(e)
 
 
@@ -85,7 +90,6 @@ def main():
     print(f"Merging {len(batch_files)} batch file(s)...")
 
     merged = {}          # item_url -> summary entry (dedup, last wins)
-    total_seen = 0
     total_blank = 0
     skipped_files = 0
 
@@ -109,7 +113,6 @@ def main():
                 continue
             url = item_url(item)
             text = (item.get("ai_summary") or "").strip()
-            total_seen += 1
             if not url:
                 total_blank += 1
                 continue
@@ -127,8 +130,12 @@ def main():
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
+    # Atomic write: a crash mid-write would leave a truncated file that the
+    # report generator then treats as missing.
+    tmp = output_path.with_name(output_path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, output_path)
 
     print(f"\nMerged {len(out_summaries)} unique summaries into {output_path}")
     if total_blank:
