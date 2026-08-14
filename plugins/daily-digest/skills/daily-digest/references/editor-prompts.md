@@ -217,10 +217,10 @@ cd "{skill_directory}" && python scripts/merge_narratives.py \
   --output "{project_root}/workspaces/daily-digests/data/daily-digest/digest_narrative.json"
 ```
 
-It prints the merged counts (e.g. `article_topics: 8`, `podcast_topics: 6`). A
-missing/corrupt editor file is skipped with a warning rather than crashing —
-the report generator will then render a visible placeholder for the missing
-track instead of silently omitting it.
+It prints the merged counts (e.g. `article_topics: 8`, `podcast_episodes:
+101`, `podcast_other: 37`). A missing/corrupt editor file is skipped with a
+warning rather than crashing — the report generator will then render a
+visible placeholder for the missing track instead of silently omitting it.
 
 Note: the legacy `digest_highlights.json` (3-5 one-line highlights) is no
 longer produced. If one from an older run is present, the report generator

@@ -49,6 +49,29 @@ def load_json(path):
         sys.exit(1)
 
 
+def clean_stale_batches(output_dir, prefix):
+    """Remove previous runs' batch and summary files for this prefix.
+
+    The merge step globs ``{prefix}_ai_summaries_batch_*.json`` and batch
+    files are indexed 0..N-1 per run, so a rerun that produces fewer batches
+    than the previous run leaves the old tail behind — and yesterday's items
+    silently contaminate today's digest. Sub-agents rewrite today's files
+    right after this cleanup. Returns the number of files removed.
+    """
+    if not output_dir.exists():
+        return 0
+    removed = 0
+    for pattern in (f"{prefix}_batch_*.json",
+                    f"{prefix}_ai_summaries_batch_*.json"):
+        for path in output_dir.glob(pattern):
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed
+
+
 def _truncate(text, cap=TEXT_CAP):
     """Return text trimmed to cap chars (or '' if falsy)."""
     if not text:
@@ -132,12 +155,20 @@ def main():
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
                         help=f"Items per batch (default: {DEFAULT_BATCH_SIZE})")
     args = parser.parse_args()
+    if args.batch_size < 1:
+        parser.error("--batch-size must be >= 1")
 
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8")
 
     data = load_json(args.input)
-    updates = data.get("updates", [])
+    updates = data.get("updates", []) or []
+
+    output_dir = Path(args.output_dir)
+    removed = clean_stale_batches(output_dir, args.prefix)
+    if removed:
+        print(f"Removed {removed} stale batch/summary file(s) from a previous run.")
+
     if not updates:
         print(f"No updates in {args.input}; wrote 0 batches.")
         return
@@ -147,7 +178,6 @@ def main():
     else:
         batches = prepare_github_batches(updates, args.batch_size)
 
-    output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for idx, batch in enumerate(batches):

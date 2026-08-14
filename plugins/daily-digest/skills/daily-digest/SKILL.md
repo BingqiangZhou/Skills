@@ -1,6 +1,6 @@
 ---
 name: daily-digest
-version: "1.3.0"
+version: "1.3.1"
 description: |
   Orchestrate the three collector skills (rss-monitor, github-monitor,
   tool-update-monitor) into a single run and produce ONE unified daily digest
@@ -280,10 +280,13 @@ flow is:
 2. **Two parallel sub-agents** (§2d-1 articles editor, §2d-2 podcasts editor):
    - Articles editor → `digest_narrative_articles.json`
      (`overview` + `article_topics` + `other`; **no media-channel names**, only
-     the actors/subjects of the news; clusters 5-8 content themes).
+     the actors/subjects of the news; each topic = lead + bullets, clusters
+     5-8 content themes).
    - Podcasts editor → `digest_narrative_podcasts.json`
-     (`podcast_topics`; clusters 4-6 themes; bundles lifestyle/crime episodes
-     briefly without sensitive detail).
+     (`podcast_episodes` per-episode roundup + `podcast_other`; **no theme
+     clustering** — every episode stands on its own, and shows/hosts may be
+     named; low-substance episodes are bundled one-per-line in
+     `podcast_other` without sensitive detail).
 3. **Merge** both into `digest_narrative.json` via
    `scripts/merge_narratives.py` (§merge). The merge is non-destructive; a
    missing track is skipped with a warning, and Step 3 will render a visible

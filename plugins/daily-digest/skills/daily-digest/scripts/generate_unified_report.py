@@ -565,11 +565,14 @@ def _merge_tool_updates(updates):
     merged = []
     for tid, info in by_tool.items():
         entries = info["entries"]
-        # Representative = highest version (ties → last seen, which keeps the
-        # newest published_at from collector ordering).
+        # Representative = highest version, compared numerically as a version
+        # tuple — the old string compare ranked "0.9.0" above "0.10.0" and
+        # could attach the older release's link/published_at/body to the
+        # collapsed entry. Entries arrive newest→oldest, so strict > keeps
+        # the newest published_at among equal versions.
         best = entries[0]
         for u in entries[1:]:
-            if (u.get("version", "") > best.get("version", "")):
+            if _version_key(u.get("version")) > _version_key(best.get("version")):
                 best = u
         merged_entry = dict(best)
         versions = info["versions"]
