@@ -1,6 +1,6 @@
 ---
 name: tool-update-monitor
-version: "1.6.0"
+version: "1.6.1"
 description: |
   Collect and save new releases of developer tools and operating systems to
   latest_updates.json. This is the COLLECTION layer only: it detects new
@@ -29,7 +29,7 @@ description: |
 
 # Tool Update Monitor Skill (Collection Layer)
 
-Collect new releases of **13 developer tools and operating systems** and
+Collect new releases of **14 developer tools and operating systems** and
 **save** them to `latest_updates.json`. This skill is **collection only** — it
 does not summarize or render a report. To turn the collected data into a
 unified AI-summarized daily digest, run the **daily-digest** skill.
@@ -41,13 +41,13 @@ reader sees "truly new" releases rather than everything published in a fixed win
 Tools are grouped into four categories:
 
 - **AI 编码代理 / AI Coding Agents** — ZCode, VS Code, Claude Code, OpenAI
-  Codex CLI, OpenClaw, Hermes Agent, OpenCode
+  Codex CLI, OpenClaw, Hermes Agent, OpenCode, DeepSeek Harness
 - **系统工具 / System Tools** — Homebrew, Warp
 - **系统更新 / OS Updates** — Windows 11, macOS Tahoe
 - **网络代理 / Network Proxies** — Clash Verge Rev, v2rayN
 
 Source types (dispatched in `check_updates.py`): GitHub Releases API
-(9 tools), npm registry (`@anthropic-ai/claude-code`), HTML changelog
+(9 tools), npm registry (2 tools: Claude Code, DeepSeek Harness), HTML changelog
 regex scrape (ZCode, macOS), and a dedicated Windows table scraper for
 Microsoft's release-health page. Add/remove tools in
 `references/tools.json` — no code changes needed for new same-type sources.
@@ -73,7 +73,7 @@ Microsoft's release-health page. Add/remove tools in
 
 - **Baseline run** (no `.last_seen.json`, or `--force-baseline`): records the
   current version of every tool and reports **zero** new updates. This avoids
-  spamming 13 "new" entries on first use.
+  spamming 14 "new" entries on first use.
 - **Normal run**: for each tool, fetch its latest release(s); any version
   newer than the recorded one is "new". After computing, the latest version
   is written back to `.last_seen.json`. So if a tool ships 3 releases since
@@ -145,7 +145,7 @@ Watch for the **scraped sources** in particular:
 
 ## Performance Notes
 
-- First (baseline) scan: ~5-10s (13 endpoints, 6 workers, mostly 304-friendly).
+- First (baseline) scan: ~5-10s (14 endpoints, 6 workers, mostly 304-friendly).
 - Subsequent scans with ETag cache: ~3-6s (most endpoints return 304).
 - **GitHub API authentication**: set `GITHUB_ACCESS_TOKEN` in the environment
   (same env var as github-monitor). With a token, the 9 GitHub-Releases-sourced

@@ -9,7 +9,7 @@ changelog page), compares against the last-seen version recorded in
 Detection model: LAST-SEEN VERSION STATE. A release is "new" if its version
 is newer than the last one recorded for that tool. The very first run (no
 state file) is a BASELINE run: it records current versions and reports zero
-new updates, so the first check doesn't spam 11 "new" entries.
+new updates, so the first check doesn't spam 14 "new" entries.
 
 Uses ETag/If-Modified-Since HTTP caching (the GitHub API and npm registry both
 honor conditional requests, which lets unchanged endpoints return 304 and skip
@@ -28,9 +28,12 @@ import threading
 import time
 import urllib.error as urllib_error
 import urllib.request as urllib_request
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+# Repo convention: display timestamps in CST (UTC+8).
+CST = timezone(timedelta(hours=8))
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +121,29 @@ def fetch_url(url, cache=None, timeout=TIMEOUT, accept=None, user_agent=None,
     except urllib_error.HTTPError as e:
         if e.code == 304:
             return None, 304, cached
+        if e.code == 403 and e.headers.get("X-RateLimit-Remaining") == "0":
+            # GitHub signals primary rate-limit exhaustion with 403 +
+            # X-RateLimit-Remaining: 0 (not 429). Sleep until the reset epoch
+            # when it is close, then retry once; otherwise surface the 403 —
+            # setting GITHUB_ACCESS_TOKEN is the real fix.
+            try:
+                delay = int(e.headers.get("X-RateLimit-Reset", 0)) - int(time.time())
+            except (TypeError, ValueError):
+                delay = -1
+            if 0 <= delay <= 300:
+                print(f"fetch_url: GitHub rate limit hit for {url}; "
+                      f"sleeping {delay}s until reset", file=sys.stderr)
+                time.sleep(delay + 2)
+                try:
+                    ctx = create_ssl_context()
+                    with urllib_request.urlopen(req, context=ctx, timeout=timeout) as resp:
+                        return _read(resp)
+                except urllib_error.HTTPError as e2:
+                    if e2.code == 304:
+                        return None, 304, cached
+                    return None, e2.code, {}
+                except Exception:
+                    return None, -1, {}
         return None, e.code, {}
     except Exception as first_err:
         print(f"fetch_url: primary request failed for {url}: "
@@ -868,6 +894,22 @@ def check_one_tool(tool, cache, state):
 
     prev = state.get(tid, {})
 
+    # Deadlock guard: 304 says "unchanged", but we hold no state at all for
+    # this tool (fresh/corrupt/deleted state file, or --force-baseline, which
+    # passes an empty state). The snapshot-recompute path below would then
+    # yield latest=None, which the state-write loop in main() skips — so the
+    # state would stay empty forever: every run a spurious baseline and
+    # --force-baseline a silent no-op, until the ETag happens to expire.
+    # Re-fetch once ignoring the ETag; the fresh body then lands in both the
+    # state snapshot and the cache, breaking the cycle.
+    if ret == "not_modified" and not (prev.get("releases") or prev.get("version")):
+        try:
+            result, ret = fetcher(tool, {})
+        except Exception as e:
+            return {"ok": False, "status": f"refetch after empty-state 304: {e}",
+                    "tool": tool, "result": None, "new_releases": [],
+                    "latest": None, "releases": None}
+
     # 304 Not Modified: the upstream release list is unchanged, so recompute
     # NEW releases against the release snapshot we persisted last successful run.
     # This keeps detection correct even when the API only returns a cache hit.
@@ -941,6 +983,9 @@ def main():
     parser.add_argument("--force-baseline", action="store_true",
                         help="Re-record current versions as baseline; report 0 new")
     args = parser.parse_args()
+
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8")
 
     config = load_json(args.tools)
     if not config or not isinstance(config, dict) or not config.get("tools"):
@@ -1082,7 +1127,7 @@ def main():
             "hours": args.hours,
             "update_count": len(updates),
             "baseline_run": is_baseline,
-            "check_time": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "check_time": now.astimezone(CST).strftime("%Y-%m-%d %H:%M:%S CST"),
             "categories_order": cat_order,
             # Diagnoses spurious baseline runs: if this baseline was produced
             # with a --state path that previously held 0 tools but the file at
