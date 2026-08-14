@@ -24,6 +24,15 @@ import sys
 from pathlib import Path
 
 import io_utils
+import narrative
+
+# Shared normalizers — the SINGLE implementation lives in narrative.py.
+# This script normalizes on write and generate_unified_report re-normalizes
+# on read; the two used to keep verbatim copies that could drift apart.
+_normalize_topics = narrative.normalize_topics
+_normalize_str_list = narrative.normalize_str_list
+_normalize_other = narrative.normalize_other
+_normalize_podcast_episodes = narrative.normalize_podcast_episodes
 
 
 def load_json_safe(path):
@@ -47,41 +56,6 @@ def load_json_safe(path):
         return {}, False
 
 
-def _normalize_topics(raw):
-    """Coerce a topics list into [{title, lead, bullets, narrative}].
-
-    Drops the audit-only `items[]`. Carries the new scannable fields
-    (`lead`, `bullets`) through to the renderer; also keeps the legacy
-    `narrative` string so old editor output still renders as a paragraph
-    when `bullets` is absent.
-    """
-    out = []
-    if not isinstance(raw, list):
-        return out
-    for t in raw:
-        if not isinstance(t, dict):
-            continue
-        title = (t.get("title") or "").strip()
-        lead = (t.get("lead") or "").strip()
-        narrative = (t.get("narrative") or "").strip()
-        raw_bullets = t.get("bullets")
-        bullets = []
-        if isinstance(raw_bullets, list):
-            for b in raw_bullets:
-                if isinstance(b, str):
-                    b = b.strip()
-                    if b:
-                        bullets.append(b)
-        if title or lead or bullets or narrative:
-            out.append({
-                "title": title,
-                "lead": lead,
-                "bullets": bullets,
-                "narrative": narrative,
-            })
-    return out
-
-
 def _warn_unscannable(track, topics):
     """Warn about topics that fell back to a narrative paragraph.
 
@@ -103,56 +77,6 @@ def _warn_unscannable(track, topics):
                 file=sys.stderr,
             )
     return count
-
-
-def _normalize_str_list(raw):
-    """Coerce into a list of stripped non-empty strings. Always a list."""
-    if isinstance(raw, list):
-        return [b.strip() for b in raw if isinstance(b, str) and b.strip()]
-    if isinstance(raw, str):
-        s = raw.strip()
-        return [s] if s else []
-    return []
-
-
-def _normalize_other(raw):
-    """Coerce the ``other`` roundup into a list of bullet strings.
-
-    The editor is asked to emit ``other`` as an array of short bullets; a
-    list is kept (empties stripped). A legacy/non-compliant string is
-    returned as-is so the renderer's paragraph safety net still works —
-    ``main()`` then warns so the silent fallback stays visible.
-    """
-    if isinstance(raw, list):
-        return _normalize_str_list(raw)
-    if isinstance(raw, str):
-        s = raw.strip()
-        return s if s else ""
-    return ""
-
-
-def _normalize_podcast_episodes(raw):
-    """Coerce podcast_episodes into a list of {show, title, summary, url}.
-
-    Accepts ``show`` or ``podcast_name`` as the show key (defensive). Drops
-    entries missing both show and title (unidentifiable). ``url`` is carried
-    for optional linking; non-dict items are skipped.
-    """
-    out = []
-    if not isinstance(raw, list):
-        return out
-    for e in raw:
-        if not isinstance(e, dict):
-            continue
-        show = (e.get("show") or e.get("podcast_name") or "").strip()
-        title = (e.get("title") or "").strip()
-        summary = (e.get("summary") or "").strip()
-        url = (e.get("url") or "").strip()
-        if not (show or title):
-            continue
-        out.append({"show": show, "title": title,
-                    "summary": summary, "url": url})
-    return out
 
 
 def main():

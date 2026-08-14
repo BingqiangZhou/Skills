@@ -1,6 +1,6 @@
 ---
 name: daily-digest
-version: "1.3.2"
+version: "1.3.3"
 description: |
   Orchestrate the three collector skills (rss-monitor, github-monitor,
   tool-update-monitor) into a single run and produce ONE unified daily digest
@@ -56,7 +56,10 @@ collection logic stays reusable and the report logic stays centralized.
     prepare_batches.py            # Split latest_updates.json into sub-agent batches
     split_rss_summaries.py        # Split rss_ai_summaries.json → articles / podcasts tracks
     merge_narratives.py           # Merge articles + podcasts editor outputs → digest_narrative.json
-    generate_unified_report.py    # Render the unified daily digest Markdown
+    generate_unified_report.py    # Assemble the unified daily digest Markdown (report + CLI)
+    narrative.py                  # Editor-payload normalizers + RSS narrative renderers
+    compact_lists.py              # GitHub / tool compact-list renderers
+    io_utils.py                   # Shared: win32 stdout guard, atomic JSON writes, CST time
 
 # Sibling skills' scripts are reused (not copied) from:
 {skill_directory}/../rss-monitor/scripts/

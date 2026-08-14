@@ -7,10 +7,15 @@ The report mixes two presentation styles, tuned to each source's nature:
   it is rendered as a **narrative**: an editor sub-agent clusters the
   per-item summaries into 5-8 cross-cutting topic narratives plus an overview
   and an "其他动态" roundup. No per-item blocks for RSS.
+  → normalization + rendering live in ``narrative.py``.
 - **GitHub** and **工具** are low-volume and inherently structured ("which
   repo PR merged", "which tool released which version"), so they are rendered
   as a **compact list** — one tight block per item with its AI summary/key
   note (when available) and a link.
+  → rendering lives in ``compact_lists.py``.
+
+This file keeps the report assembly and the CLI; shared helpers (atomic JSON
+writes, CST time formatting) live in ``io_utils.py``.
 
 Output shape:
 
@@ -36,25 +41,32 @@ import argparse
 import json
 import os
 import sys
-from collections import OrderedDict
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import io_utils
+import narrative
+import compact_lists
+from io_utils import CST, fmt_cst  # noqa: F401  (fmt_cst re-exported)
+from narrative import build_narrative, fallback_overview
+from compact_lists import (
+    build_github_summary_map,
+    build_tool_highlights,
+    render_github_list,
+    render_tool_list,
+)
 
+# Backward-compat aliases for the pre-split private names — tests and any
+# external callers keep working.
+_normalize_topics = narrative.normalize_topics
+_normalize_str_list = narrative.normalize_str_list
+_normalize_podcast_episodes = narrative.normalize_podcast_episodes
+_fallback_overview = fallback_overview
+_expected_podcast_count = narrative.expected_podcast_count
+_merge_tool_updates = compact_lists.merge_tool_updates
+_version_key = compact_lists.version_key
+_fallback_text = compact_lists.fallback_text
 
-# The audience of these reports is Chinese readers; display times in CST.
-CST = timezone(timedelta(hours=8))
-
-# ---------------------------------------------------------------------------
-# Shared limits
-# ---------------------------------------------------------------------------
-FALLBACK_CHARS = 200            # max chars of description shown when no AI summary
-
-
-# ===========================================================================
-# Generic helpers
-# ===========================================================================
 
 def load_json(path):
     """Load a JSON file, return None on missing/corrupt.
@@ -72,610 +84,6 @@ def load_json(path):
         return None
 
 
-def _fallback_text(text, max_chars=FALLBACK_CHARS):
-    """Truncate text to max_chars with ellipsis."""
-    if not text:
-        return ""
-    return text[:max_chars] + ("..." if len(text) > max_chars else "")
-
-
-def parse_iso(ts):
-    """Parse an ISO-8601 timestamp to aware UTC datetime, or None."""
-    if not ts:
-        return None
-    try:
-        return datetime.strptime(ts, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
-    except ValueError:
-        try:
-            return datetime.fromisoformat(str(ts).replace('Z', '+00:00'))
-        except ValueError:
-            return None
-
-
-def fmt_cst(ts):
-    """Format an ISO timestamp as 'YYYY-MM-DD HH:MM' in CST, or '' if unparseable."""
-    dt = parse_iso(ts)
-    if dt is None:
-        return ''
-    return dt.astimezone(CST).strftime('%Y-%m-%d %H:%M')
-
-
-# GitHub renderers
-# ===========================================================================
-
-def build_github_summary_map(summaries_data):
-    """Build a {item_url: ai_summary} lookup."""
-    summaries = (summaries_data.get("summaries")
-                 if isinstance(summaries_data, dict) else None)
-    if not isinstance(summaries, list):
-        return {}
-    result = {}
-    for item in summaries:
-        if not isinstance(item, dict):
-            continue
-        url = (item.get("item_url") or item.get("pr_url")
-               or item.get("issue_url") or "")
-        if url:
-            result[url] = item.get("ai_summary", "")
-    return result
-
-
-def repo_display_name(repo_key, per_repo):
-    """Look up a human-friendly name for a repo from metadata.per_repo."""
-    for entry in per_repo or []:
-        if entry.get('repo') == repo_key and entry.get('name'):
-            return entry['name']
-    return repo_key
-
-
-# ===========================================================================
-# Tool helpers
-# ===========================================================================
-
-def build_tool_highlights(highlights_data):
-    """Build (tool_id->note map, overall string) from ai_highlights.json."""
-    if not highlights_data or not isinstance(highlights_data, dict):
-        return {}, ""
-    per_tool = highlights_data.get("per_tool") or {}
-    overall = highlights_data.get("highlights") or ""
-    if not isinstance(per_tool, dict):
-        per_tool = {}
-    return per_tool, overall
-
-
-# ===========================================================================
-# Narrative rendering (the unified report's actual body)
-# ===========================================================================
-
-def _normalize_topics(raw_topics):
-    """Turn a raw topics list into [{title, lead, bullets, narrative}].
-
-    Drops the audit-only ``items[]``. Carries the scannable fields
-    (``lead``, ``bullets``) to the renderer; keeps the legacy ``narrative``
-    string so older editor output (one dense paragraph, no bullets) still
-    renders as a paragraph.
-    """
-    out = []
-    if not isinstance(raw_topics, list):
-        return out
-    for t in raw_topics:
-        if not isinstance(t, dict):
-            continue
-        title = (t.get("title") or "").strip()
-        lead = (t.get("lead") or "").strip()
-        narrative = (t.get("narrative") or "").strip()
-        raw_bullets = t.get("bullets")
-        bullets = []
-        if isinstance(raw_bullets, list):
-            for b in raw_bullets:
-                if isinstance(b, str):
-                    b = b.strip()
-                    if b:
-                        bullets.append(b)
-        if title or lead or bullets or narrative:
-            out.append({
-                "title": title,
-                "lead": lead,
-                "bullets": bullets,
-                "narrative": narrative,
-            })
-    return out
-
-
-def _normalize_str_list(raw):
-    """Coerce into a list of stripped non-empty strings. Always a list."""
-    if isinstance(raw, list):
-        return [b.strip() for b in raw if isinstance(b, str) and b.strip()]
-    if isinstance(raw, str):
-        s = raw.strip()
-        return [s] if s else []
-    return []
-
-
-def _normalize_podcast_episodes(raw):
-    """Coerce podcast_episodes into a list of {show, title, summary, url}.
-
-    Accepts ``show`` or ``podcast_name`` as the show key (defensive). Drops
-    entries missing both show and title. Carries ``url`` for optional linking.
-    """
-    out = []
-    if not isinstance(raw, list):
-        return out
-    for e in raw:
-        if not isinstance(e, dict):
-            continue
-        show = (e.get("show") or e.get("podcast_name") or "").strip()
-        title = (e.get("title") or "").strip()
-        summary = (e.get("summary") or "").strip()
-        url = (e.get("url") or "").strip()
-        if not (show or title):
-            continue
-        out.append({"show": show, "title": title,
-                    "summary": summary, "url": url})
-    return out
-
-
-def build_narrative(narrative_data):
-    """Normalize the editor sub-agent's digest_narrative.json output.
-
-    Supports two payload shapes:
-
-    - **Split** (articles + podcasts independent): top-level ``overview``,
-      ``other``, ``article_topics``, plus the podcast track
-      (``podcast_episodes``/``podcast_other`` per-episode format, with
-      ``podcast_topics`` kept as a legacy fallback).
-    - **Legacy/flat**: top-level ``overview``, ``other``, ``topics`` list
-      (kept for backward compatibility).
-
-    Returns ``(overview, article_topics, podcast_topics, podcast_episodes,
-    podcast_other, other)``. For the legacy shape, all topics land in
-    ``article_topics`` and the podcast fields are empty. ``other`` is a list
-    of bullet strings when the editor complied with the scannable format,
-    else a legacy paragraph string (or ""). Tolerates a missing/partial
-    payload by returning empty values.
-    """
-    if not isinstance(narrative_data, dict):
-        return "", [], [], [], [], ""
-
-    overview = (narrative_data.get("overview") or "").strip()
-    raw_other = narrative_data.get("other")
-    if isinstance(raw_other, list):
-        # Scannable format: a list of bullet strings.
-        other = [b.strip() for b in raw_other
-                 if isinstance(b, str) and b.strip()]
-    elif isinstance(raw_other, str):
-        other = raw_other.strip()
-    else:
-        other = ""
-
-    if "article_topics" in narrative_data or "podcast_topics" in narrative_data:
-        article_topics = _normalize_topics(narrative_data.get("article_topics"))
-        podcast_topics = _normalize_topics(narrative_data.get("podcast_topics"))
-    else:
-        article_topics = _normalize_topics(narrative_data.get("topics"))
-        podcast_topics = []
-
-    podcast_episodes = _normalize_podcast_episodes(
-        narrative_data.get("podcast_episodes"))
-    podcast_other = _normalize_str_list(narrative_data.get("podcast_other"))
-    return (overview, article_topics, podcast_topics,
-            podcast_episodes, podcast_other, other)
-
-
-def _fallback_overview(digest_highlights_text, tool_overall, rss_insight):
-    """Best-effort overview string when no narrative payload is available.
-
-    Pulls together any cross-source highlights, tool highlights, and the RSS
-    trend insight so the degraded report still says *something* useful.
-    """
-    snippets = []
-    if digest_highlights_text:
-        snippets.append(digest_highlights_text.strip())
-    if tool_overall:
-        snippets.append(f"工具：{tool_overall.strip()}")
-    if rss_insight:
-        insight_text = (rss_insight.get("trend_insight") or "").strip()
-        if insight_text:
-            snippets.append(insight_text)
-    return "\n\n".join(snippets)
-
-
-def _expected_podcast_count(rss_data):
-    """Count ``source == "podcast"`` items in the RSS collector output.
-
-    Used to tell whether the podcast narrative *should* have been produced, so
-    the report can warn loudly instead of silently omitting the section when
-    the editor sub-agent failed or produced empty output.
-    """
-    if not rss_data:
-        return 0
-    return sum(1 for u in (rss_data.get("updates") or [])
-               if u.get("source") == "podcast")
-
-
-def _render_topic_list(lines, heading, topics, missing_placeholder=None):
-    """Render a numbered list of topic narratives under ``heading``.
-
-    When ``topics`` is non-empty, renders the list as before. When empty:
-
-    - If ``missing_placeholder`` is None (default): no-op (back-compat for
-      callers that genuinely want silence when there's nothing to say).
-    - If ``missing_placeholder`` is a string: still emit the ``## heading``
-      followed by the placeholder block, so the section is never silently
-      dropped — the reader always knows it was expected.
-    """
-    if topics:
-        lines.append(f"## {heading}")
-        lines.append("")
-        for i, topic in enumerate(topics, 1):
-            title = topic.get("title") or f"话题 {i}"
-            lead = topic.get("lead") or ""
-            bullets = topic.get("bullets") or []
-            narrative = topic.get("narrative") or ""
-            lines.append(f"### {i}. {title}")
-            lines.append("")
-            if bullets:
-                # Scannable format: short lead + bullet list.
-                if lead:
-                    lines.append(lead)
-                    lines.append("")
-                for b in bullets:
-                    lines.append(f"- {b}")
-            elif narrative:
-                # Backward compat: older editor output (one dense paragraph,
-                # no bullets) renders as before.
-                lines.append(narrative)
-            else:
-                lines.append("*(暂无叙述)*")
-            lines.append("")
-            lines.append("---")
-            lines.append("")
-        return
-
-    if missing_placeholder is None:
-        return
-    lines.append(f"## {heading}")
-    lines.append("")
-    lines.append(missing_placeholder)
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-
-
-def _fmt_episode(title, summary):
-    """One episode as 'title：summary' (whichever parts are present)."""
-    if title and summary:
-        return f"{title}：{summary}"
-    return title or summary
-
-
-def _render_podcast_episodes(lines, heading, episodes, other_episodes,
-                             legacy_topics, missing_placeholder=None):
-    """Render the podcast section as a PER-EPISODE list.
-
-    Preferred shape: ``episodes`` (list of {show, title, summary, url}) → each
-    episode is its own line. Episodes from the SAME show are grouped under the
-    show name (a bold parent + nested episode bullets); single-episode shows
-    stay flat as ``- **show** · title：summary``. Trivial episodes
-    (``other_episodes``) print as a short "其他播客" tail.
-
-    Fallbacks so the section is never silently lost:
-    - empty ``episodes`` but legacy ``legacy_topics`` present → render the old
-      topic-narrative list (backward compat);
-    - both empty + a ``missing_placeholder`` → emit the heading + warning;
-    - both empty + no placeholder → no-op.
-    """
-    if episodes:
-        lines.append(f"## {heading}")
-        lines.append("")
-        # Group by show, preserving first-seen order. Episodes with no show
-        # are rendered as standalone bullets (never bucketed under an empty
-        # parent label).
-        groups = {}
-        order = []
-        standalone = []
-        for ep in episodes:
-            show = (ep.get("show") or "").strip()
-            title = (ep.get("title") or "").strip()
-            summary = (ep.get("summary") or "").strip()
-            body = _fmt_episode(title, summary)
-            if not show:
-                if body:
-                    standalone.append(body)
-                continue
-            if show not in groups:
-                groups[show] = []
-                order.append(show)
-            groups[show].append(body)
-        for show in order:
-            eps = groups[show]
-            if len(eps) == 1:
-                lines.append(f"- **{show}** · {eps[0]}"
-                             if eps[0] else f"- **{show}**")
-            else:
-                lines.append(f"- **{show}**")
-                for body in eps:
-                    lines.append(f"  - {body}" if body else "  -")
-        for body in standalone:
-            lines.append(f"- {body}")
-        if other_episodes:
-            lines.append("")
-            lines.append("- **其他播客**")
-            for line in other_episodes:
-                line = (line or "").strip()
-                if line:
-                    lines.append(f"  - {line}")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
-        return
-
-    # Legacy fallback: old podcast_topics theme structure.
-    if legacy_topics:
-        _render_topic_list(lines, heading, legacy_topics)
-        return
-
-    # Nothing produced.
-    if missing_placeholder is None:
-        return
-    lines.append(f"## {heading}")
-    lines.append("")
-    lines.append(missing_placeholder)
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-
-
-# ===========================================================================
-# Compact list renderers for GitHub / tool (low-volume, structured sources)
-# ===========================================================================
-
-def _compact_github_item(update, index, summary_map, lines):
-    """Append one GitHub PR/issue as a tight block: title + summary.
-
-    No meta line — the title link already carries the repo + number, and for
-    the self-promotion issues / project-list PRs that dominate this feed the
-    author / reactions are noise rather than signal. The block is just the
-    linked title followed by the AI summary (or a short body excerpt).
-    """
-    title = update.get("title") or "(无标题)"
-    url = update.get("html_url") or ""
-    body_text = update.get("body_text") or ""
-    ai_summary = summary_map.get(url, "")
-
-    # Numbered title — link if we have a URL.
-    prefix = f"- **{index}.** "
-    if url:
-        lines.append(f"{prefix}[{title}]({url})")
-    else:
-        lines.append(f"{prefix}{title}")
-
-    # Summary: prefer AI one-liner, else a short body excerpt.
-    if ai_summary:
-        lines.append(f"  {ai_summary.strip()}")
-    elif body_text:
-        lines.append(f"  {_fallback_text(body_text)}")
-
-    lines.append("")
-
-
-def _compact_tool_release(update, index, per_tool_map, lines):
-    """Append one tool release as a tight block: name `vX` + meta + key note.
-
-    Release notes bodies can be long, so in the compact view we show only the
-    AI per-tool key note (when available); the tool name itself links to the
-    release (no separate link line).
-
-    When the entry carries a ``versions`` array (the collector collapses a
-    tool's multiple new versions into one entry), the version is rendered as a
-    range ``v{oldest} → v{newest}`` rather than a single ``v{version}``.
-    """
-    name = update.get("name", "Unknown")
-    version = update.get("version", "?")
-    versions = update.get("versions") or []
-    prev = update.get("previous_version")
-    published = fmt_cst(update.get("published_at"))
-    url = update.get("html_url", "")
-    prerelease = update.get("prerelease", False)
-    tid = update.get("tool_id", "")
-
-    if len(versions) > 1:
-        ver_label = f"`v{versions[0]}` → `v{versions[-1]}`"
-    else:
-        ver_label = f"`v{version}`"
-    if prerelease:
-        ver_label += " *(pre-release)*"
-    # Tool name links directly to the release; no separate 🔗 line.
-    name_label = f"[{name}]({url})" if url else name
-    lines.append(f"- **{index}.** {name_label} {ver_label}")
-
-    meta_bits = []
-    if prev:
-        meta_bits.append(f"from `v{prev}`")
-    if published:
-        meta_bits.append(published)
-    if meta_bits:
-        lines.append(f"  {' · '.join(meta_bits)}")
-
-    note = per_tool_map.get(tid, "")
-    if note:
-        lines.append(f"  {note.strip()}")
-
-    lines.append("")
-
-
-def render_github_list(github_data, summary_map, lines):
-    """Render the GitHub section as a compact list (no repo subsections).
-
-    Items are grouped by repo with a bold repo label, but stay list-shaped.
-    Returns the number of items rendered.
-    """
-    meta = github_data.get("metadata", {})
-    updates = github_data.get("updates", [])
-    update_count = meta.get("update_count", len(updates))
-    per_repo = meta.get("per_repo") or []
-    hours = meta.get("hours", 24)
-
-    pr_count = sum(1 for u in updates if u.get("type") == "pulls")
-    issue_count = len(updates) - pr_count
-
-    lines.append(f"## 🔧 GitHub 动态（{update_count} 条）")
-    lines.append("")
-    lines.append(f"> 时间窗 {hours}h · PR {pr_count} / Issue {issue_count}")
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-
-    if not updates:
-        lines.append("本轮无新的 GitHub 动态。")
-        lines.append("")
-        return 0
-
-    # Group by repo, preserving first-seen order (updates are newest-first).
-    groups = OrderedDict()
-    for u in updates:
-        groups.setdefault(u.get("repo", "unknown/unknown"), []).append(u)
-
-    multi_repo = len(groups) > 1
-    idx = 0
-    for repo_key, repo_updates in groups.items():
-        if multi_repo:
-            name = repo_display_name(repo_key, per_repo)
-            label = name if name == repo_key else f"{name}（`{repo_key}`）"
-            lines.append(f"**{label}**（{len(repo_updates)}）")
-            lines.append("")
-        for u in repo_updates:
-            idx += 1
-            _compact_github_item(u, idx, summary_map, lines)
-    return idx
-
-
-def _merge_tool_updates(updates):
-    """Collapse multiple entries for the same tool into one.
-
-    The collector already dedupes a tool's new versions into a single entry
-    carrying a ``versions`` array, but this also tolerates older collector
-    output where one tool appears as several entries (e.g. multiple beta tags
-    for the same version). All entries for a tool are merged into the one with
-    the highest ``version``; a ``versions`` array (oldest→newest) is added when
-    more than one distinct version is present. Order is preserved by each
-    tool's first appearance in ``updates``.
-    """
-    by_tool = OrderedDict()
-    for u in updates:
-        tid = u.get("tool_id") or u.get("name") or ""
-        if tid not in by_tool:
-            by_tool[tid] = {
-                "entries": [],
-                "versions": [],
-            }
-        by_tool[tid]["entries"].append(u)
-        v = u.get("version")
-        if v and v not in by_tool[tid]["versions"]:
-            by_tool[tid]["versions"].append(v)
-
-    merged = []
-    for tid, info in by_tool.items():
-        entries = info["entries"]
-        # Representative = highest version, compared numerically as a version
-        # tuple — the old string compare ranked "0.9.0" above "0.10.0" and
-        # could attach the older release's link/published_at/body to the
-        # collapsed entry. Entries arrive newest→oldest, so strict > keeps
-        # the newest published_at among equal versions.
-        best = entries[0]
-        for u in entries[1:]:
-            if _version_key(u.get("version")) > _version_key(best.get("version")):
-                best = u
-        merged_entry = dict(best)
-        versions = info["versions"]
-        if len(versions) > 1:
-            # Collector supplies versions oldest→newest; entries are
-            # newest→oldest, so sort defensively by version tuple.
-            try:
-                versions = sorted(versions, key=_version_key)
-            except Exception:
-                pass
-            merged_entry["versions"] = versions
-            merged_entry["version"] = versions[-1]
-        else:
-            merged_entry["version"] = best.get("version")
-        merged.append(merged_entry)
-    return merged
-
-
-def _version_key(v):
-    """Comparison key for a dotted version string (ints; non-numeric → 0)."""
-    if not v:
-        return (0,)
-    parts = []
-    for p in str(v).split("."):
-        try:
-            parts.append(int(p))
-        except ValueError:
-            parts.append(0)
-    return tuple(parts)
-
-
-def render_tool_list(tool_data, per_tool_map, overall_highlight, lines):
-    """Render the tool section as a compact list grouped by category.
-
-    Returns the number of tools rendered.
-    """
-    meta = tool_data.get("metadata", {})
-    updates = tool_data.get("updates", [])
-    categories_order = meta.get("categories_order") or []
-    checked = meta.get("checked_count", 0)
-    errors = meta.get("error_count", 0)
-    hours = meta.get("hours", 168)
-
-    # Collapse multiple entries per tool into one (with a versions range).
-    updates = _merge_tool_updates(updates)
-    tool_count = len(updates)
-
-    lines.append("## 🛠 工具更新（{}）".format(
-        "基线建立" if meta.get("baseline_run") else f"{tool_count} 个新版本"))
-    lines.append("")
-
-    if meta.get("baseline_run"):
-        lines.append(f"> 首次运行：已记录 {checked} 个工具当前版本作为基线，本次不报告新版本。")
-        if errors:
-            lines.append(f"> ⚠️ {errors} 个工具获取失败。")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
-        return 0
-
-    lines.append(f"> 检查 {checked} 个工具（约 {hours}h）· {errors} 个出错")
-    lines.append("")
-    if overall_highlight:
-        lines.append(f"**速览**：{overall_highlight}")
-        lines.append("")
-    lines.append("---")
-    lines.append("")
-
-    if not updates:
-        lines.append("最近无新版本发布。")
-        lines.append("")
-        return 0
-
-    groups = OrderedDict()
-    for cat in categories_order:
-        groups[cat] = []
-    for u in updates:
-        cat = u.get("category") or "其他 / Other"
-        groups.setdefault(cat, []).append(u)
-
-    idx = 0
-    for cat, cat_updates in groups.items():
-        if not cat_updates:
-            continue
-        lines.append(f"**{cat}**（{len(cat_updates)}）")
-        lines.append("")
-        for u in cat_updates:
-            idx += 1
-            _compact_tool_release(u, idx, per_tool_map, lines)
-    return idx
-
 def generate_unified_report(rss_data, github_data, github_summary_map,
                             tool_data, tool_per_tool, tool_overall,
                             narrative_data, fallback_overview):
@@ -684,14 +92,13 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
     Parameters
     ----------
     rss_data, github_data, tool_data : dict | None
-        Collector outputs. RSS feeds the narrative (when available); GitHub
-        and tool feed compact list sections rendered from their data.
+        Collector outputs (``latest_updates.json``); None omits the section.
     github_summary_map : dict
-        ``{item_url: ai_summary}`` for GitHub items.
-    tool_per_tool, tool_overall : dict, str
-        Per-tool key-note map + overall highlight string for tools.
+        {item_url: ai_summary} for the GitHub compact list.
+    tool_per_tool : dict, tool_overall : str
+        Per-tool AI notes and the overall highlights string.
     narrative_data : dict | None
-        The editor sub-agent's ``digest_narrative.json`` (RSS-only now).
+        The editor sub-agents' merged ``digest_narrative.json``.
         Drives the overview + 今日重点 + 其他动态 sections. When absent the
         overview degrades to ``fallback_overview``.
     fallback_overview : str
@@ -734,7 +141,7 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
      podcast_episodes, podcast_other, other) = build_narrative(narrative_data)
     has_narrative = bool(overview or article_topics or podcast_topics
                          or podcast_episodes or other)
-    expected_podcasts = _expected_podcast_count(rss_data)
+    expected_podcasts = narrative.expected_podcast_count(rss_data)
 
     lines.append("## 📊 今日概览")
     lines.append("")
@@ -748,13 +155,8 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
     lines.append("---")
     lines.append("")
 
-    if not has_narrative:
-        lines.append("> ⚠️ 本次未生成 RSS 话题叙事（主编步骤缺失或失败），"
-                     "如需可重跑 daily-digest 补齐。")
-        lines.append("")
-
-    # Article topics never silently vanish either: if the collector had
-    # non-podcast items but no article narrative came back, surface it.
+    # Article section: if the collector saw non-podcast items but no article
+    # narrative came back, surface it.
     expected_articles = (len(rss_data.get("updates") or []) if rss_data else 0) \
         - expected_podcasts
     article_placeholder = None
@@ -779,11 +181,12 @@ def generate_unified_report(rss_data, github_data, github_summary_map,
               f"podcast narrative is empty; emitting placeholder in report.",
               file=sys.stderr)
 
-    _render_topic_list(lines, "🔥 今日重点", article_topics,
-                       missing_placeholder=article_placeholder)
-    _render_podcast_episodes(lines, "🎧 播客精选",
-                             podcast_episodes, podcast_other, podcast_topics,
-                             missing_placeholder=podcast_placeholder)
+    narrative.render_topic_list(lines, "🔥 今日重点", article_topics,
+                                missing_placeholder=article_placeholder)
+    narrative.render_podcast_episodes(lines, "🎧 播客精选",
+                                      podcast_episodes, podcast_other,
+                                      podcast_topics,
+                                      missing_placeholder=podcast_placeholder)
 
     if other:
         lines.append("## 📌 其他动态")
@@ -836,8 +239,7 @@ def main():
                         help="Output Markdown file path")
     args = parser.parse_args()
 
-    if sys.platform == "win32":
-        sys.stdout.reconfigure(encoding="utf-8")
+    io_utils.setup_win32_stdout()
 
     provided = [args.rss_input, args.github_input, args.tool_input]
     if not any(provided):
@@ -899,7 +301,7 @@ def main():
             print("WARNING: cannot load digest narrative; will fall back.",
                   file=sys.stderr)
 
-    # --- Legacy highlights (fallback overview only) ---
+    # --- Deprecated cross-source highlights (fallback overview only) ---
     digest_highlights_text = ""
     if args.digest_highlights:
         dh = load_json(args.digest_highlights)
@@ -908,7 +310,7 @@ def main():
             if digest_highlights_text:
                 print("Loaded cross-source digest highlights (fallback only)")
 
-    fallback_overview = _fallback_overview(
+    fallback_overview = narrative.fallback_overview(
         digest_highlights_text, tool_overall, rss_insight)
     if not narrative_data and fallback_overview:
         print("Using fallback overview (no narrative payload).")
@@ -938,7 +340,7 @@ def main():
     # Podcast narrative coverage — surfaces a missing track at a glance.
     if rss_data is not None:
         _, _, pod_topics, pod_eps, _, _ = build_narrative(narrative_data)
-        expected = _expected_podcast_count(rss_data)
+        expected = narrative.expected_podcast_count(rss_data)
         if expected > 0:
             if pod_eps:
                 rendered.append(f"Podcasts({len(pod_eps)} eps / {expected})")
